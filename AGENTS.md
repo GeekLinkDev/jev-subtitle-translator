@@ -2,7 +2,7 @@
 
 ## Project
 
-This repository contains the open-source Subtitle Translator with Jev QC project.
+This repository contains the open-source GeekLink Jev Subtitle Translator project.
 Its GitHub repository is `GeekLinkDev/jev-subtitle-translator`.
 
 ## Git Commit Language

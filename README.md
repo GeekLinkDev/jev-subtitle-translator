@@ -1,9 +1,8 @@
-# Subtitle Translator with Jev QC
+# GeekLink Jev Subtitle Translator
 
-AI subtitle translator with Jev-powered quality control. Translate SRT/ASS/VTT
-and automatically flag missing or suspicious lines.
+**Translate with your preferred LLM. Check every translation with Jev.**
 
-Subtitle Translator with Jev QC combines subtitle translation with a focused,
+GeekLink Jev Subtitle Translator combines subtitle translation with a focused,
 provider-agnostic quality-control layer. It checks whether the translated output
 is structurally complete and whether it still matches the meaning of the source,
 then identifies the lines that deserve human attention.
@@ -29,16 +28,16 @@ review pass.
 ## How it works
 
 ```text
-source subtitles + translated subtitles
-                    |
-                    v
-        deterministic structural checks
-                    |
-                    v
-       semantic review of valid source/target pairs
-                    |
-                    v
-        line-level review flags for the user
+SRT / ASS / VTT
+       ↓
+Claude · GPT · Gemini · DeepL
+       ↓
+    Translation
+       ↓
+       Jev
+Translation Quality Check
+       ↓
+  PASS / REVIEW
 ```
 
 The semantic checker returns a small, machine-readable verdict for each subtitle
