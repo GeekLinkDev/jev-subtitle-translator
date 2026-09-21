@@ -1,14 +1,12 @@
-# Subtitle Translation QC
+# Subtitle Translator with Jev QC
 
-Find missing lines and meaning-changing errors in AI-translated subtitles.
+AI subtitle translator with Jev-powered quality control. Translate SRT/ASS/VTT
+and automatically flag missing or suspicious lines.
 
-Subtitle Translation QC is a small, provider-agnostic quality-control layer for
-subtitle translation pipelines. It checks whether an existing translation is
-structurally complete and whether it still matches the meaning of the source.
-
-It is not another translation engine. It does not rewrite the subtitle file
-automatically or claim that an AI translation is perfect. Its job is to identify
-the lines that deserve human attention.
+Subtitle Translator with Jev QC combines subtitle translation with a focused,
+provider-agnostic quality-control layer. It checks whether the translated output
+is structurally complete and whether it still matches the meaning of the source,
+then identifies the lines that deserve human attention.
 
 > Status: early development. The interface and supported subtitle formats may
 > change while the evaluation set and command-line interface are being finalized.
