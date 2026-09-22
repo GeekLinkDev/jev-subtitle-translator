@@ -19,6 +19,18 @@ QC_PARTIAL = "partial"
 QC_FAILED = "failed"
 
 
+def pair_existing_translation(
+    source_cues: list[Cue],
+    target_cues: list[Cue],
+) -> dict[str, str]:
+    """Pair an existing translated SRT with its source by cue position."""
+
+    return {
+        source_cue.id: target_cues[index].text if index < len(target_cues) else ""
+        for index, source_cue in enumerate(source_cues)
+    }
+
+
 def deterministic_check(
     source_cues: list[Cue],
     translations: dict[str, str],
@@ -203,6 +215,7 @@ def build_report(
     return {
         "version": 1,
         "qc_status": qc_status,
+        "structural_issues": list((records.get("_run") or {}).get("structural_issues", [])),
         "source_count": len(source_cues),
         "translated_count": sum(bool(value.strip()) for value in translations.values()),
         "flagged_count": len(flagged),

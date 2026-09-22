@@ -397,8 +397,21 @@
         <div class="left-panel">
             <div class="upload-section">
                 <div class="form-group">
-                    <label>SRT File</label>
+                    <label>Workflow</label>
+                    <select id="workflowMode" onchange="handleWorkflowModeChange()">
+                        <option value="translate">Translate + QC</option>
+                        <option value="qc">QC existing translation</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label>Source SRT</label>
                     <input type="file" id="srtFile" accept=".srt" onchange="handleSrtUpload()" />
+                </div>
+
+                <div class="form-group" id="translationFileGroup" style="display: none;">
+                    <label>Translated SRT</label>
+                    <input type="file" id="translationFile" accept=".srt" onchange="handleTranslationUpload()" />
                 </div>
 
                 <div class="form-group">
@@ -422,7 +435,7 @@
                     </div>
                 </div>
 
-                <div class="form-group">
+                <div class="form-group" id="translationModelGroup">
                     <label>Translation Model (cost relative to DeepSeek V3 = 1x)</label>
                     <select id="model">
                         <option value="deepseek/deepseek-v4-flash-0731">DeepSeek (V4 Flash) — ≈0.2x</option>
@@ -447,12 +460,12 @@
                 </div>
 
                 <div class="form-group">
-                    <label>Translation Prompt (optional)</label>
-                    <input type="text" id="prompt" placeholder="Additional translation guidance" />
+                    <label>Additional Guidance (optional)</label>
+                    <input type="text" id="prompt" placeholder="Terminology or translation guidance" />
                 </div>
 
                 <div class="button-group">
-                    <button id="translateBtn" onclick="handleTranslate()">Translate</button>
+                    <button id="runBtn" onclick="handleRun()">Translate + QC</button>
                     <button id="resetBtn" onclick="handleReset()">Reset</button>
                 </div>
             </div>
@@ -476,7 +489,7 @@
 
             <div class="empty-state" id="emptyState">
                 <div class="empty-state-icon">📁</div>
-                <div class="empty-state-text">Upload an SRT file to get started</div>
+                <div class="empty-state-text" id="emptyStateText">Upload a source SRT to get started</div>
             </div>
         </div>
 
@@ -490,6 +503,10 @@
                 <div class="summary-item">
                     <label>Flagged Lines:</label>
                     <value id="flaggedCount">-</value>
+                </div>
+                <div class="summary-item" id="structuralIssuesRow" style="display: none;">
+                    <label>Structural Issues:</label>
+                    <value id="structuralIssues">-</value>
                 </div>
                 <div class="summary-item">
                     <label>Translation Model:</label>
@@ -623,6 +640,24 @@
             if (file) session.set('srt', file);
         }
 
+        function handleTranslationUpload() {
+            const file = document.getElementById('translationFile').files[0];
+            if (file) session.set('translationSrt', file);
+        }
+
+        function handleWorkflowModeChange() {
+            const isQc = document.getElementById('workflowMode').value === 'qc';
+            document.getElementById('translationFileGroup').style.display = isQc ? 'block' : 'none';
+            document.getElementById('translationModelGroup').style.display = isQc ? 'none' : 'block';
+            document.getElementById('runBtn').textContent = isQc ? 'Run QC' : 'Translate + QC';
+            document.getElementById('emptyStateText').textContent = isQc
+                ? 'Upload source and translated SRT files to get started'
+                : 'Upload a source SRT to get started';
+            if (!currentData) {
+                document.getElementById('exportSrtBtn').style.display = isQc ? 'none' : 'block';
+            }
+        }
+
         function handleVideoUpload() {
             const file = document.getElementById('videoFile').files[0];
             if (file) {
@@ -641,10 +676,14 @@
         }
 
         async function restoreSession() {
-            const [srt, video, result] = await Promise.all([
-                session.get('srt'), session.get('video'), session.get('result'),
+            const [srt, translationSrt, video, result] = await Promise.all([
+                session.get('srt'),
+                session.get('translationSrt'),
+                session.get('video'),
+                session.get('result'),
             ]);
             if (srt) setInputFile('srtFile', srt);
+            if (translationSrt) setInputFile('translationFile', translationSrt);
             if (video) {
                 setInputFile('videoFile', video);
                 showVideo(video);
@@ -655,10 +694,17 @@
             }
         }
 
-        async function handleTranslate() {
+        async function handleRun() {
+            const workflowMode = document.getElementById('workflowMode').value;
             const srtFile = document.getElementById('srtFile').files[0];
             if (!srtFile) {
-                showStatus('Please select an SRT file', 'error');
+                showStatus('Please select a source SRT file', 'error');
+                return;
+            }
+
+            const translationFile = document.getElementById('translationFile').files[0];
+            if (workflowMode === 'qc' && !translationFile) {
+                showStatus('Please select a translated SRT file', 'error');
                 return;
             }
 
@@ -670,24 +716,28 @@
 
             const sourceLanguage = document.getElementById('sourceLanguage').value;
             const targetLanguage = document.getElementById('targetLanguage').value;
-            const model = document.getElementById('model').value;
             const jevModel = document.getElementById('jevModel').value;
             const prompt = document.getElementById('prompt').value;
 
             const formData = new FormData();
-            formData.append('file', srtFile);
+            if (workflowMode === 'qc') {
+                formData.append('source_file', srtFile);
+                formData.append('translation_file', translationFile);
+            } else {
+                formData.append('file', srtFile);
+                formData.append('model', document.getElementById('model').value);
+            }
             formData.append('source_language', sourceLanguage);
             formData.append('target_language', targetLanguage);
-            formData.append('model', model);
             formData.append('jev_model', jevModel);
             formData.append('prompt', prompt);
             formData.append('api_key', apiKey);
 
             showStatus('Starting...', 'processing');
-            document.getElementById('translateBtn').disabled = true;
+            document.getElementById('runBtn').disabled = true;
 
             try {
-                const response = await fetch('/api/translate', {
+                const response = await fetch(workflowMode === 'qc' ? '/api/qc' : '/api/translate', {
                     method: 'POST',
                     body: formData
                 });
@@ -715,11 +765,11 @@
                 currentData = result;
                 session.set('result', result);
                 renderResults(result);
-                showStatus('Translation complete! ✓', 'success');
+                showStatus(workflowMode === 'qc' ? 'QC complete' : 'Translation and QC complete', 'success');
             } catch (error) {
                 showStatus(`Error: ${error.message}`, 'error');
             } finally {
-                document.getElementById('translateBtn').disabled = false;
+                document.getElementById('runBtn').disabled = false;
                 document.getElementById('progress').classList.remove('active');
             }
         }
@@ -757,11 +807,19 @@
             document.getElementById('subtitleViewer').classList.add('active');
             document.getElementById('summary').style.display = 'block';
             document.getElementById('exportSection').style.display = 'block';
+            document.getElementById('exportSrtBtn').style.display = data.mode === 'qc' ? 'none' : 'block';
 
             // Update summary
             document.getElementById('sourceCount').textContent = report.source_count;
             document.getElementById('flaggedCount').textContent = report.flagged_count;
-            document.getElementById('translationModel').textContent = report.translation_model;
+            const structuralIssues = report.structural_issues || [];
+            document.getElementById('structuralIssuesRow').style.display = structuralIssues.length
+                ? 'flex'
+                : 'none';
+            document.getElementById('structuralIssues').textContent = structuralIssues.join(', ');
+            document.getElementById('translationModel').textContent = report.translation_model === 'external'
+                ? 'Existing translated SRT'
+                : report.translation_model;
             document.getElementById('qcModel').textContent = report.jev_model;
 
             const qcStatusEl = document.getElementById('qcStatus');
@@ -829,6 +887,7 @@
 
         function handleReset() {
             document.getElementById('srtFile').value = '';
+            document.getElementById('translationFile').value = '';
             document.getElementById('videoFile').value = '';
             document.getElementById('status').style.display = 'none';
             document.getElementById('videoPlayer').classList.remove('active');
@@ -878,7 +937,7 @@
             const saved = localStorage.getItem('jevTranslatorPrefs');
             if (saved) {
                 const prefs = JSON.parse(saved);
-                for (const id of ['sourceLanguage', 'targetLanguage', 'model', 'jevModel']) {
+                for (const id of ['workflowMode', 'sourceLanguage', 'targetLanguage', 'model', 'jevModel']) {
                     const select = document.getElementById(id);
                     if (prefs[id] && [...select.options].some(o => o.value === prefs[id])) {
                         select.value = prefs[id];
@@ -891,6 +950,7 @@
         // Save preferences to localStorage
         function savePreferences() {
             const prefs = {
+                workflowMode: document.getElementById('workflowMode').value,
                 sourceLanguage: document.getElementById('sourceLanguage').value,
                 targetLanguage: document.getElementById('targetLanguage').value,
                 jevModel: document.getElementById('jevModel').value,
@@ -901,7 +961,7 @@
         }
 
         // Save preferences when user changes them
-        ['sourceLanguage', 'targetLanguage', 'model', 'jevModel', 'prompt'].forEach(id => {
+        ['workflowMode', 'sourceLanguage', 'targetLanguage', 'model', 'jevModel', 'prompt'].forEach(id => {
             const el = document.getElementById(id);
             if (el) {
                 el.addEventListener('change', savePreferences);
@@ -911,6 +971,7 @@
 
         document.addEventListener('DOMContentLoaded', () => {
             loadPreferences();
+            handleWorkflowModeChange();
             restoreSession();
         });
     </script>

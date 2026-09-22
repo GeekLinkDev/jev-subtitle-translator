@@ -7,6 +7,7 @@ from jev_subtitle_translator.qc import (
     build_report,
     deterministic_check,
     finalize_qc_status,
+    pair_existing_translation,
     run_jev_qc,
 )
 from jev_subtitle_translator.srt import read_srt
@@ -91,6 +92,28 @@ def test_target_count_mismatch_is_reported():
 
     assert records["_run"]["structural_issues"] == ["source_target_count_mismatch"]
     assert records["3"]["translation_status"] == STATUS_NEEDS_REPAIR
+
+    report = build_report(
+        source,
+        translations,
+        records,
+        qc_status="completed_with_flags",
+        qc_errors=[],
+        translation_model="external",
+        jev_model="typesafe/jev-1.13",
+    )
+    assert report["structural_issues"] == ["source_target_count_mismatch"]
+
+
+def test_existing_translation_is_paired_by_source_position():
+    source = read_srt(FIXTURES / "english.srt")
+    target = read_srt(FIXTURES / "german-errors.srt")[:3]
+
+    translations = pair_existing_translation(source, target)
+
+    assert translations["0"] == "Ich sagte ihm, er solle kommen."
+    assert translations["2"] == "John rief Anna an."
+    assert translations["3"] == ""
 
 
 def test_successful_run_with_flags_has_explicit_status():

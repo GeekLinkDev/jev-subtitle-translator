@@ -7,7 +7,13 @@ import sys
 from pathlib import Path
 
 from .openrouter import OpenRouterClient
-from .qc import build_report, deterministic_check, finalize_qc_status, run_jev_qc
+from .qc import (
+    build_report,
+    deterministic_check,
+    finalize_qc_status,
+    pair_existing_translation,
+    run_jev_qc,
+)
 from .srt import read_srt, write_srt
 from .translator import translate_cues
 
@@ -127,10 +133,7 @@ def _run_translate(args: argparse.Namespace, client: OpenRouterClient) -> int:
 def _run_qc(args: argparse.Namespace, client: OpenRouterClient) -> int:
     source_cues = read_srt(args.source)
     target_cues = read_srt(args.translation)
-    translations = {
-        source_cue.id: target_cues[index].text if index < len(target_cues) else ""
-        for index, source_cue in enumerate(source_cues)
-    }
+    translations = pair_existing_translation(source_cues, target_cues)
     records, _ = deterministic_check(source_cues, translations, target_cues=target_cues)
     qc_status, qc_errors = run_jev_qc(
         client,

@@ -33,10 +33,11 @@ bash run_web.sh
 
 Open [http://127.0.0.1:8000](http://127.0.0.1:8000), then:
 
-1. Upload an SRT file and enter your OpenRouter API key.
-2. Choose the source language, target language, and translation model.
-3. Click **Translate**. Jev review runs automatically when translation finishes.
-4. Review highlighted lines and download the translated SRT or JSON QC report.
+1. Choose **Translate + QC** or **QC existing translation**.
+2. Upload the source SRT. For independent QC, also upload the translated SRT.
+3. Enter your OpenRouter API key and choose the source and target languages.
+4. Click **Translate + QC** or **Run QC**. Independent QC does not call a translation model.
+5. Review highlighted lines and download the JSON QC report. Translation mode also provides the translated SRT.
 
 A video file is optional and can be added for local subtitle preview.
 

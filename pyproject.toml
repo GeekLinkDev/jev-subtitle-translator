@@ -28,7 +28,13 @@ jev-subtitle-translator = "jev_subtitle_translator.cli:main"
 
 [project.optional-dependencies]
 web = ["fastapi>=0.104", "uvicorn[standard]>=0.24", "python-multipart>=0.0.6"]
-dev = ["pytest>=8", "ruff>=0.6"]
+dev = [
+  "pytest>=8",
+  "ruff>=0.6",
+  "fastapi>=0.104",
+  "python-multipart>=0.0.6",
+  "httpx>=0.27",
+]
 
 [tool.setuptools.package-data]
 jev_subtitle_translator = ["static/*"]
