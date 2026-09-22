@@ -17,7 +17,9 @@ Translate SRT subtitles with GPT, Claude, Gemini, DeepSeek, Grok, or another com
 
 > **Need to start from a video instead of an SRT file?**
 >
-> This open-source project is designed for translating and reviewing existing SRT subtitles. [GeekLink Subtitle Translator](https://geeklink.dev/subtitle-translator/) provides the complete desktop workflow: transcribe video or audio, translate subtitles, extract burned-in subtitles, edit the results, and export finished videos—without setting up Python or managing model APIs.
+> This open-source project is designed for translating and reviewing existing SRT subtitles. [**Try GeekLink Desktop →**](https://geeklink.dev/subtitle-translator/) for the complete workflow: transcribe video or audio, translate subtitles, extract burned-in subtitles, edit the results, and export finished videos.
+>
+> *No Python setup or model API management required.*
 
 ## Quick start
 
