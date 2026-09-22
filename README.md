@@ -42,10 +42,7 @@ and [Jev request](src/jev_subtitle_translator/openrouter.py) are in the source c
 
 ## Command line
 
-<details>
-<summary>Translate an SRT or check an existing translation</summary>
-
-After the setup above, set your key and run either command:
+Translate and review an SRT:
 
 ```bash
 export OPENROUTER_API_KEY="your-api-key"
@@ -54,8 +51,14 @@ export OPENROUTER_API_KEY="your-api-key"
 .venv/bin/jev-subtitle-translator translate input.srt \
   --source-language en --target-language de \
   --model openai/gpt-4o-mini --output translated.srt
+```
 
-# Check an existing translation without translating it again.
+Check an existing translation without translating it again:
+
+```bash
+# The API key is required for Jev review.
+export OPENROUTER_API_KEY="your-api-key"
+
 .venv/bin/jev-subtitle-translator qc \
   --source input.srt --translation translated.srt \
   --source-language en --target-language de --output qc-report.json
@@ -67,8 +70,6 @@ Jev defaults to `typesafe/jev-1.13`.
 
 Use `--prompt` for additional translation guidance, `--batch-size` and `--workers`
 to tune requests, or either command's `--help` for all options.
-
-</details>
 
 ## Project information
 
