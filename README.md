@@ -1,15 +1,22 @@
 # GeekLink Jev Subtitle Translator
 
-**Translate with your preferred LLM. Check every translation with Jev.**
+Translate SRT subtitles with an OpenRouter-compatible language model and review
+the result with Jev.
 
-This project is an early command-line subtitle translator and quality-control
-tool. It sends subtitle dialogue to an OpenRouter model using native JSON Schema
-structured output, writes a translated SRT file, and then asks Jev to identify
-lines that deserve human review.
+This is a command-line tool for subtitle translation and quality control. It
+keeps the source cue order and timing, uses structured output for translation
+responses, and writes a line-level JSON report for human review.
 
-The first release is intentionally small: SRT input, OpenRouter translation, and
-Jev quality control. There is no web interface, account system, telemetry, or
-GeekLink-specific service dependency.
+## Features
+
+- Translate SRT files between supported languages.
+- Use any translation model available through OpenRouter.
+- Request translations with native JSON Schema structured output.
+- Preserve subtitle IDs, order, and timing information.
+- Run deterministic checks before semantic quality control.
+- Ask Jev to flag omissions, changed meaning, names, numbers, negation, and
+  other suspicious translations.
+- Review the result in a portable local JSON report.
 
 ## Workflow
 
@@ -17,9 +24,10 @@ GeekLink-specific service dependency.
 source.srt
     |
     v
-OpenRouter structured translation
+Structured translation
     |
-    +--> translated.srt
+    v
+translated.srt
     |
     v
 Deterministic checks + Jev review
@@ -28,31 +36,16 @@ Deterministic checks + Jev review
 translated.srt.qc.json
 ```
 
-## What it checks
+Jev identifies lines that deserve human review. It does not rewrite subtitles,
+and an unflagged line should not be treated as a guarantee of perfect
+translation.
 
-The local deterministic pass catches:
+## Requirements
 
-- empty translations;
-- missing or duplicated translation IDs;
-- source and target cue-count mismatches;
-- subtitle number and timing mismatches;
-- translation rows that failed upstream.
-
-The Jev pass checks for semantic problems such as:
-
-- omitted content;
-- reversed negation;
-- changed numbers, dates, quantities, or units;
-- changed or missing names and entities;
-- unsupported additions;
-- truncation or obvious repetition.
-
-Jev produces a review signal. It does not rewrite subtitles automatically and it
-does not claim that every unflagged line is correct.
+- Python 3.10 or newer
+- An OpenRouter API key
 
 ## Installation
-
-Python 3.10 or newer is required.
 
 ```bash
 git clone https://github.com/GeekLinkDev/jev-subtitle-translator.git
@@ -62,7 +55,7 @@ python3 -m venv .venv
 export OPENROUTER_API_KEY="your-api-key"
 ```
 
-## Translate and check an SRT
+## Translate and check an SRT file
 
 ```bash
 .venv/bin/jev-subtitle-translator translate \
@@ -73,10 +66,25 @@ export OPENROUTER_API_KEY="your-api-key"
   --output translated.srt
 ```
 
-The command creates:
+The command writes:
 
-- `translated.srt`, preserving the source cue order, numbers, and timings;
-- `translated.srt.qc.json`, containing line-level translation and QC results.
+- `translated.srt`, containing the translated subtitles;
+- `translated.srt.qc.json`, containing the translation and quality-control
+  results for each source cue.
+
+The Jev model defaults to `typesafe/jev-1.13`. To select another model:
+
+```bash
+.venv/bin/jev-subtitle-translator translate \
+  input.srt \
+  --source-language en \
+  --target-language de \
+  --model your/provider-model \
+  --jev-model your/jev-model \
+  --output translated.srt
+```
+
+Additional translation guidance can be supplied with `--prompt`.
 
 ## Check an existing translation
 
@@ -89,51 +97,44 @@ The command creates:
   --output qc-report.json
 ```
 
-## Failure handling
+This mode checks an existing source and translated SRT pair without translating
+it again.
 
-The first release deliberately avoids recursive batch splitting:
+## Quality-control report
 
-- missing or empty response IDs are retried only as missing IDs;
-- JSON validation, timeout, and server errors retry the same request;
-- ordinary failures are not silently converted into source text;
-- unresolved translations remain empty and are recorded in the report;
-- Jev failures do not overwrite a completed translation.
+The report contains:
 
-## Privacy and cost
+- the overall quality-control status;
+- the source and translated cue counts;
+- the selected model names;
+- deterministic issues such as empty translations, mismatched IDs, timing
+  changes, and count mismatches;
+- Jev review flags for individual subtitle lines;
+- request or response errors that need attention.
 
-This repository has no built-in telemetry. Reports are written locally. Subtitle
-content is sent to the OpenRouter endpoint and models selected by the user, so
-users should review the terms and privacy policies of their chosen providers.
-Continuous integration uses mocked responses and does not call paid models.
+## Data handling
+
+Subtitle text is sent to OpenRouter and the models selected by the user. The
+tool writes translation output and quality-control reports to the local
+filesystem. Users should review the terms and privacy policies of their chosen
+providers before processing sensitive material.
 
 ## Development
+
+Install the development dependencies and run the test suite:
 
 ```bash
 .venv/bin/python -m pytest -q
 python3 -m compileall -q src tests
 ```
 
-The code is organized around a small public boundary:
-
-```text
-SRT parser -> structured translation client -> SRT writer
-                                      |
-                                      v
-                              Jev QC and report
-```
-
-GeekLink-specific licensing, credits, authentication, analytics, and service
-adapters are intentionally outside this repository.
-
 ## Contributing
 
 Useful contributions include reproducible subtitle failure cases, provider
 compatibility reports, parser tests, and evaluation data that does not contain
-private customer content. Please include the source line, translated line,
-expected review decision, provider, and model when reporting a QC issue.
-
-All source comments and docstrings must be written in English. Commit messages
-must also be written in English.
+private or confidential material. When reporting a quality-control issue,
+include the source line, translated line, expected review decision, provider,
+and model when possible.
 
 ## License
 
