@@ -2,145 +2,150 @@
 
 **Translate with your preferred LLM. Check every translation with Jev.**
 
-GeekLink Jev Subtitle Translator combines subtitle translation with a focused,
-provider-agnostic quality-control layer. It checks whether the translated output
-is structurally complete and whether it still matches the meaning of the source,
-then identifies the lines that deserve human attention.
+This project is an early command-line subtitle translator and quality-control
+tool. It sends subtitle dialogue to an OpenRouter model using native JSON Schema
+structured output, writes a translated SRT file, and then asks Jev to identify
+lines that deserve human review.
 
-> Status: early development. The interface and supported subtitle formats may
-> change while the evaluation set and command-line interface are being finalized.
+The first release is intentionally small: SRT input, OpenRouter translation, and
+Jev quality control. There is no web interface, account system, telemetry, or
+GeekLink-specific service dependency.
 
-## Why this exists
-
-An AI translation can return valid JSON and still contain silent errors:
-
-- a subtitle line is missing or empty;
-- an input ID is missing, duplicated, or mismatched;
-- a negation is reversed;
-- a number, date, unit, or proper name changes;
-- part of a sentence is omitted;
-- the output is fluent but no longer means the same thing as the source.
-
-These failures are difficult to detect with format validation alone. A useful QC
-step should combine inexpensive deterministic checks with a focused semantic
-review pass.
-
-## How it works
+## Workflow
 
 ```text
-SRT / ASS / VTT
-       ↓
-Claude · GPT · Gemini · DeepL
-       ↓
-    Translation
-       ↓
-       Jev
-Translation Quality Check
-       ↓
-  PASS / REVIEW
+source.srt
+    |
+    v
+OpenRouter structured translation
+    |
+    +--> translated.srt
+    |
+    v
+Deterministic checks + Jev review
+    |
+    v
+translated.srt.qc.json
 ```
 
-The semantic checker returns a small, machine-readable verdict for each subtitle
-ID instead of rewriting the translation:
+## What it checks
 
-```json
-{
-  "items": [
-    {"id": "42", "needs_review": true},
-    {"id": "43", "needs_review": false}
-  ]
-}
+The local deterministic pass catches:
+
+- empty translations;
+- missing or duplicated translation IDs;
+- source and target cue-count mismatches;
+- subtitle number and timing mismatches;
+- translation rows that failed upstream.
+
+The Jev pass checks for semantic problems such as:
+
+- omitted content;
+- reversed negation;
+- changed numbers, dates, quantities, or units;
+- changed or missing names and entities;
+- unsupported additions;
+- truncation or obvious repetition.
+
+Jev produces a review signal. It does not rewrite subtitles automatically and it
+does not claim that every unflagged line is correct.
+
+## Installation
+
+Python 3.10 or newer is required.
+
+```bash
+git clone https://github.com/GeekLinkDev/jev-subtitle-translator.git
+cd jev-subtitle-translator
+python3 -m venv .venv
+.venv/bin/python -m pip install -e ".[dev]"
+export OPENROUTER_API_KEY="your-api-key"
 ```
 
-The structured response contract makes the result easy to validate and map back
-to the original subtitle lines. The model is instructed to flag issues such as
-omission, reversed negation, changed numbers, changed entities, unsupported
-additions, truncation, and repetition. Legitimate wording differences should not
-be flagged when the meaning is preserved.
+## Translate and check an SRT
 
-## Two layers of checking
+```bash
+.venv/bin/jev-subtitle-translator translate \
+  input.srt \
+  --source-language en \
+  --target-language de \
+  --model your/provider-model \
+  --output translated.srt
+```
 
-### Deterministic checks
+The command creates:
 
-These checks do not call an AI model and do not require model credits:
+- `translated.srt`, preserving the source cue order, numbers, and timings;
+- `translated.srt.qc.json`, containing line-level translation and QC results.
 
-- empty target translations;
-- missing IDs;
-- duplicate IDs;
-- source/target count or pairing mismatches;
-- translation rows already known to have failed upstream.
+## Check an existing translation
 
-### Semantic review
+```bash
+.venv/bin/jev-subtitle-translator qc \
+  --source input.srt \
+  --translation translated.srt \
+  --source-language en \
+  --target-language de \
+  --output qc-report.json
+```
 
-Every valid source/translation pair can be sent to a binary semantic checker.
-The checker does not use a character-overlap shortcut to decide which rows to
-review. That kind of shortcut is unreliable for language pairs that use the same
-alphabet, such as English and German.
+## Failure handling
 
-Rows marked `needs_review` are highlighted or written to a sidecar result so the
-user can inspect them. A flag is a review signal, not an automatic claim that the
-translation is definitely wrong.
+The first release deliberately avoids recursive batch splitting:
 
-## Design principles
+- missing or empty response IDs are retried only as missing IDs;
+- JSON validation, timeout, and server errors retry the same request;
+- ordinary failures are not silently converted into source text;
+- unresolved translations remain empty and are recorded in the report;
+- Jev failures do not overwrite a completed translation.
 
-- Preserve the source subtitle file and its timing.
-- Keep the translated text separate from QC metadata.
-- Use structured JSON output plus local response validation.
-- Report the exact subtitle IDs that need attention.
-- Keep translation status and QC status separate.
-- Do not silently replace a failed translation with the source text.
-- Let the user decide how to edit a flagged line.
-- Keep the semantic checker replaceable: different models and providers should
-  be usable behind the same verdict contract.
+## Privacy and cost
 
-## Integration
+This repository has no built-in telemetry. Reports are written locally. Subtitle
+content is sent to the OpenRouter endpoint and models selected by the user, so
+users should review the terms and privacy policies of their chosen providers.
+Continuous integration uses mocked responses and does not call paid models.
 
-The project is intended to sit after an existing subtitle translation step. It
-can be embedded in a desktop application, a batch pipeline, or a command-line
-workflow:
+## Development
+
+```bash
+.venv/bin/python -m pytest -q
+python3 -m compileall -q src tests
+```
+
+The code is organized around a small public boundary:
 
 ```text
-subtitle translator
-        -> translated subtitle file
-        -> Subtitle Translation QC
-        -> flagged lines + QC metadata
+SRT parser -> structured translation client -> SRT writer
+                                      |
+                                      v
+                              Jev QC and report
 ```
 
-The first integration target is an SRT-based workflow. Format adapters and a
-standalone CLI will be added only after the core ID mapping and evaluation
-behavior are stable.
+GeekLink-specific licensing, credits, authentication, analytics, and service
+adapters are intentionally outside this repository.
 
-## Relationship to Subtitle Translator
+## Relationship to other subtitle translators
 
-This project focuses on a problem that is separate from translation itself:
-checking whether an AI-generated subtitle translation is complete and semantically
-faithful.
-
-It is designed to work with subtitle translation tools such as
-[Subtitle Translator](https://github.com/rockbenben/subtitle-translator), which
-is MIT-licensed and supports batch translation. If compatible code is reused from
-that project, the original copyright and license notices will be preserved.
-
-## Roadmap
-
-- [ ] Stabilize the source/target subtitle ID contract
-- [ ] Add an SRT command-line interface
-- [ ] Add OpenAI-compatible and OpenRouter provider adapters
-- [ ] Use native JSON Schema structured output where supported
-- [ ] Publish a reproducible error corpus for omission, negation, number, and
-      entity errors
-- [ ] Add evaluation reports for precision, recall, and false-positive rate
-- [ ] Add editor-friendly line highlighting and review filters
-- [ ] Add Chinese documentation
+The project is inspired by the workflow and usability of
+[rockbenben/subtitle-translator](https://github.com/rockbenben/subtitle-translator),
+an MIT-licensed subtitle translation project. The first release does not include
+source code from that repository. If compatible code is reused later, its
+copyright and license notices will be retained.
 
 ## Contributing
 
-The most useful contributions at this stage are realistic subtitle examples,
-failure cases, evaluation data, and provider compatibility reports. Please open
-an issue with the source line, the translated line, the expected judgment, and
-the model/provider used when reporting a detection failure.
+Useful contributions include reproducible subtitle failure cases, provider
+compatibility reports, parser tests, and evaluation data that does not contain
+private customer content. Please include the source line, translated line,
+expected review decision, provider, and model when reporting a QC issue.
+
+All source comments and docstrings must be written in English. Commit messages
+must also be written in English.
 
 ## License
 
-The project license will be included before the first code release. Any reused
-MIT-licensed code will retain its original attribution and license notice.
+Copyright (C) 2026 GeekLinkDev.
+
+This project is licensed under the GNU General Public License version 3 or any
+later version. See [LICENSE](LICENSE).
