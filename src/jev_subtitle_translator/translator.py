@@ -1,9 +1,11 @@
 """Structured subtitle translation with targeted retries for missing IDs."""
 
 import json
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
+from .languages import language_name
 from .models import Cue
 from .openrouter import OpenRouterClient, OpenRouterError
 
@@ -27,8 +29,13 @@ def translate_cues(
     custom_prompt: str = "",
     batch_size: int = 40,
     missing_retries: int = 2,
+    temperature: float = 0.0,
+    on_progress: Callable[[int, int], None] | None = None,
 ) -> TranslationResult:
-    """Translate cues without recursively splitting ordinary failures."""
+    """Translate cues without recursively splitting ordinary failures.
+
+    ``on_progress(done, total)`` is called after each batch finishes.
+    """
 
     result = TranslationResult()
     batch_size = max(1, batch_size)
@@ -52,6 +59,7 @@ def translate_cues(
                     model=model,
                     messages=messages,
                     schema_name="subtitle_translations",
+                    temperature=temperature,
                 )
                 parsed = parse_translation_response(response, {cue.id for cue in pending})
                 for subtitle_id, translation in parsed.items():
@@ -69,6 +77,8 @@ def translate_cues(
         if pending:
             for cue in pending:
                 result.failures[cue.id] = last_error or "missing_translation"
+        if on_progress is not None:
+            on_progress(min(start + batch_size, len(cues)), len(cues))
 
     return result
 
@@ -82,6 +92,8 @@ def build_translation_messages(
 ) -> list[dict[str, str]]:
     """Build a prompt that treats subtitle text as data and not as instructions."""
 
+    source_language = language_name(source_language)
+    target_language = language_name(target_language)
     system = (
         "You are a professional subtitle translator. Translate only the dialogue text "
         f"from {source_language} to {target_language}. Preserve meaning, negation, "

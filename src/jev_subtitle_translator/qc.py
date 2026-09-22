@@ -1,8 +1,10 @@
 """Deterministic and Jev-powered subtitle translation quality checks."""
 
 import hashlib
+from collections.abc import Callable
 from typing import Any
 
+from .languages import language_name
 from .models import Cue
 from .openrouter import OpenRouterClient, OpenRouterError
 
@@ -64,6 +66,8 @@ def deterministic_check(
 def build_jev_guidelines(source_language: str, target_language: str, custom_prompt: str = "") -> str:
     """Build the semantic review rules shared by the Jev request."""
 
+    source_language = language_name(source_language)
+    target_language = language_name(target_language)
     guidance = (
         "You are a bilingual subtitle quality-control checker. You do not translate "
         "or rewrite. Judge whether each "
@@ -90,8 +94,20 @@ def run_jev_qc(
     model: str = "typesafe/jev-1.13",
     custom_prompt: str = "",
     batch_size: int = 40,
-) -> tuple[str, list[str]]:
-    """Run Jev over every structurally valid non-empty translation pair."""
+    on_progress: Callable[[int, int], None] | None = None,
+) -> tuple[str, list[str], dict[str, Any]]:
+    """Run Jev over every structurally valid non-empty translation pair.
+
+    ``on_progress(done, total)`` is called after each batch finishes.
+    """
+
+    jev_review = {
+        "model": model,
+        "timing_source": "OpenRouter generation metadata",
+        "generations": [],
+        "openrouter_generation_time_ms": None,
+        "openrouter_latency_ms": None,
+    }
 
     pairs = [
         {
@@ -106,43 +122,61 @@ def run_jev_qc(
         and record.get("translation", "").strip()
     ]
     if not pairs:
-        return QC_COMPLETED, []
+        return QC_COMPLETED, [], jev_review
 
     guidelines = build_jev_guidelines(source_language, target_language, custom_prompt)
     failures: list[str] = []
     checked = 0
-    for start in range(0, len(pairs), max(1, batch_size)):
-        batch = pairs[start : start + max(1, batch_size)]
+    batch_size = max(1, batch_size)
+    for start in range(0, len(pairs), batch_size):
+        batch = pairs[start : start + batch_size]
         verdicts: dict[str, bool] | None = None
         last_error = ""
         for _ in range(2):
             try:
                 verdicts = client.decisions(model=model, pairs=batch, guidelines=guidelines)
+                generation_metadata = getattr(client, "last_generation_metadata", None)
+                if isinstance(generation_metadata, dict):
+                    jev_review["generations"].append(generation_metadata)
                 break
             except OpenRouterError as exc:
                 last_error = str(exc)
                 if exc.status in {400, 401, 403}:
                     break
+
         if verdicts is None:
             failures.append(last_error or "jev_request_failed")
-            continue
+        else:
+            checked += len(verdicts)
+            for subtitle_id, needs_review in verdicts.items():
+                if needs_review and subtitle_id in records:
+                    records[subtitle_id]["translation_status"] = STATUS_NEEDS_REVIEW
+                    records[subtitle_id]["needs_review"] = True
+                    records[subtitle_id].setdefault("issues", []).append("jev_review")
 
-        checked += len(verdicts)
-        for subtitle_id, needs_review in verdicts.items():
-            if needs_review and subtitle_id in records:
-                records[subtitle_id]["translation_status"] = STATUS_NEEDS_REVIEW
-                records[subtitle_id]["needs_review"] = True
-                records[subtitle_id].setdefault("issues", []).append("jev_review")
+            missing = [pair["id"] for pair in batch if pair["id"] not in verdicts]
+            if missing:
+                failures.append(f"jev_missing_verdicts:{','.join(missing)}")
 
-        missing = [pair["id"] for pair in batch if pair["id"] not in verdicts]
-        if missing:
-            failures.append(f"jev_missing_verdicts:{','.join(missing)}")
+        if on_progress is not None:
+            on_progress(min(start + batch_size, len(pairs)), len(pairs))
+
+    for report_key, metadata_key in (
+        ("openrouter_generation_time_ms", "generation_time_ms"),
+        ("openrouter_latency_ms", "latency_ms"),
+    ):
+        values = [
+            generation[metadata_key]
+            for generation in jev_review["generations"]
+            if isinstance(generation.get(metadata_key), (int, float))
+        ]
+        jev_review[report_key] = sum(values) if values else None
 
     if checked == 0 and failures:
-        return QC_FAILED, failures
+        return QC_FAILED, failures, jev_review
     if failures:
-        return QC_PARTIAL, failures
-    return QC_COMPLETED, []
+        return QC_PARTIAL, failures, jev_review
+    return QC_COMPLETED, [], jev_review
 
 
 def finalize_qc_status(records: dict[str, dict[str, Any]], status: str) -> str:
@@ -168,6 +202,7 @@ def build_report(
     translation_model: str,
     jev_model: str,
     translation_failures: dict[str, str] | None = None,
+    jev_review: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build a portable JSON report without writing any telemetry."""
 
@@ -183,6 +218,7 @@ def build_report(
         "flagged_count": len(flagged),
         "translation_model": translation_model,
         "jev_model": jev_model,
+        "jev_review": jev_review or {},
         "translation_failures": translation_failures or {},
         "qc_errors": qc_errors,
         "lines": line_records,

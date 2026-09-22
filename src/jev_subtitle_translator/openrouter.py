@@ -6,6 +6,7 @@ import urllib.error
 import urllib.request
 from collections.abc import Mapping
 from typing import Any
+from urllib.parse import urlencode
 
 
 class OpenRouterError(RuntimeError):
@@ -36,6 +37,24 @@ TRANSLATION_SCHEMA: dict[str, Any] = {
     "additionalProperties": False,
 }
 
+# Reasoning models think by default, which makes a 40-cue JSON batch slow and
+# far more expensive than the list price suggests. Translation does not need
+# chain-of-thought, so pin it off. Gemini 3.6 Flash cannot disable thinking and
+# only accepts "minimal".
+REASONING_BY_MODEL: dict[str, dict[str, Any]] = {
+    "openai/gpt-5.6-luna": {"effort": "none", "exclude": True},
+    "openai/gpt-5.6-terra": {"effort": "none", "exclude": True},
+    "google/gemini-3.6-flash": {"effort": "minimal", "exclude": True},
+    "anthropic/claude-sonnet-5": {"enabled": False},
+    "deepseek/deepseek-v4-flash-0731": {"enabled": False},
+    "deepseek/deepseek-v4-pro": {"enabled": False},
+}
+
+# These reject the legacy temperature parameter outright.
+NO_TEMPERATURE_MODELS = frozenset(
+    {"openai/gpt-5.6-luna", "openai/gpt-5.6-terra", "anthropic/claude-sonnet-5"}
+)
+
 
 class OpenRouterClient:
     """Call OpenRouter chat completions and the Jev Decisions endpoint."""
@@ -54,6 +73,7 @@ class OpenRouterClient:
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
         self.attempts = max(1, attempts)
+        self.last_generation_metadata: dict[str, Any] | None = None
 
     def chat_json(
         self,
@@ -63,13 +83,13 @@ class OpenRouterClient:
         schema_name: str = "subtitle_translations",
         schema: Mapping[str, Any] | None = None,
         max_tokens: int = 8192,
+        temperature: float = 0.0,
     ) -> dict[str, Any]:
         """Request a strict JSON Schema response from a chat model."""
 
         body: dict[str, Any] = {
             "model": model,
             "messages": messages,
-            "temperature": 0,
             "max_tokens": max_tokens,
             "response_format": {
                 "type": "json_schema",
@@ -79,7 +99,13 @@ class OpenRouterClient:
                     "schema": schema or TRANSLATION_SCHEMA,
                 },
             },
+            # Keep OpenRouter from routing to an endpoint that ignores response_format.
+            "provider": {"require_parameters": True},
         }
+        if model not in NO_TEMPERATURE_MODELS:
+            body["temperature"] = temperature
+        if model in REASONING_BY_MODEL:
+            body["reasoning"] = REASONING_BY_MODEL[model]
         payload = self._request_json("/api/v1/chat/completions", body)
         choices = payload.get("choices")
         if not isinstance(choices, list) or not choices:
@@ -106,6 +132,7 @@ class OpenRouterClient:
     ) -> dict[str, bool]:
         """Ask a Jev Decisions model for one review verdict per subtitle ID."""
 
+        self.last_generation_metadata = None
         subtitles = []
         questions: dict[str, Any] = {}
         for pair in pairs:
@@ -142,6 +169,9 @@ class OpenRouterClient:
                 "questions": questions,
             },
         )
+        generation_id = payload.get("id") or payload.get("generation_id")
+        if isinstance(generation_id, str) and generation_id.strip():
+            self.last_generation_metadata = self._get_generation_metadata(generation_id.strip())
         answers = payload.get("answers")
         if not isinstance(answers, dict):
             raise OpenRouterError("Jev response contains no answers object")
@@ -150,6 +180,53 @@ class OpenRouterClient:
             for subtitle_id in questions
             if subtitle_id in answers
         }
+
+    def _get_generation_metadata(self, generation_id: str) -> dict[str, Any]:
+        last_error = ""
+        for attempt in range(4):
+            request = urllib.request.Request(
+                f"{self.base_url}/api/v1/generation?{urlencode({'id': generation_id})}",
+                headers={"Authorization": f"Bearer {self.api_key}"},
+                method="GET",
+            )
+            try:
+                with urllib.request.urlopen(request, timeout=self.timeout) as response:
+                    payload = json.loads(response.read().decode("utf-8"))
+                data = payload.get("data")
+                if not isinstance(data, dict):
+                    return {
+                        "generation_id": generation_id,
+                        "metadata_error": "generation metadata contains no data object",
+                    }
+                provider_responses = data.get("provider_responses")
+                provider_latencies = []
+                if isinstance(provider_responses, list):
+                    provider_latencies = [
+                        item.get("latency")
+                        for item in provider_responses
+                        if isinstance(item, dict)
+                        and isinstance(item.get("latency"), (int, float))
+                    ]
+                return {
+                    "generation_id": data.get("id") or generation_id,
+                    "model": data.get("model"),
+                    "provider": data.get("provider_name"),
+                    "api_type": data.get("api_type"),
+                    "generation_time_ms": data.get("generation_time"),
+                    "latency_ms": data.get("latency"),
+                    "provider_latencies_ms": provider_latencies,
+                }
+            except urllib.error.HTTPError as exc:
+                detail = exc.read().decode("utf-8", errors="replace")[:500]
+                last_error = f"OpenRouter HTTP {exc.code}: {detail}"
+                if exc.code != 404 or attempt == 3:
+                    break
+            except (urllib.error.URLError, TimeoutError, OSError, json.JSONDecodeError) as exc:
+                last_error = f"generation metadata request failed: {exc}"
+                if attempt == 3:
+                    break
+            time.sleep(0.25 * (2**attempt))
+        return {"generation_id": generation_id, "metadata_error": last_error}
 
     def _request_json(self, path: str, body: dict[str, Any]) -> dict[str, Any]:
         request = urllib.request.Request(
@@ -160,6 +237,7 @@ class OpenRouterClient:
                 "Content-Type": "application/json",
                 "HTTP-Referer": "https://github.com/GeekLinkDev/jev-subtitle-translator",
                 "X-Title": "GeekLink Jev Subtitle Translator",
+                "X-OpenRouter-Metadata": "enabled",
             },
             method="POST",
         )

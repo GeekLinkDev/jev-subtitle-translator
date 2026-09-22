@@ -7,6 +7,9 @@ This is a command-line tool for subtitle translation and quality control. It
 keeps the source cue order and timing, uses structured output for translation
 responses, and writes a line-level JSON report for human review.
 
+For the GeekLink desktop subtitle translator, visit
+[geeklink.dev/subtitle-translator](https://geeklink.dev/subtitle-translator/).
+
 ## Features
 
 - Translate SRT files between supported languages.
@@ -84,7 +87,15 @@ The Jev model defaults to `typesafe/jev-1.13`. To select another model:
   --output translated.srt
 ```
 
-Additional translation guidance can be supplied with `--prompt`.
+Languages are given as codes such as `en`, `de`, `ja`, `zh-CN`, or `zh-TW`; see
+`languages.py` for the full list. They are turned into plain names in the
+model prompt, so an unlisted value like `Latin` is passed through unchanged.
+
+Additional translation guidance can be supplied with `--prompt`. Translation
+uses `temperature` 0 so results are reproducible; `--temperature` overrides it
+for experiments. Models that reject the parameter (GPT-5.6, Claude Sonnet 5)
+ignore it, and reasoning models have thinking disabled because it slows
+subtitle batches down without improving them.
 
 ## Check an existing translation
 
@@ -110,6 +121,7 @@ The report contains:
 - deterministic issues such as empty translations, mismatched IDs, timing
   changes, and count mismatches;
 - Jev review flags for individual subtitle lines;
+- OpenRouter-reported Jev generation time, latency, and generation IDs;
 - request or response errors that need attention.
 
 ## Data handling

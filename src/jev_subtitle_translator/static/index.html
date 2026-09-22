@@ -1,0 +1,918 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Jev Subtitle Translator</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: #1e1e1e;
+            color: #e0e0e0;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .header {
+            background: #252526;
+            border-bottom: 1px solid #3e3e42;
+            padding: 16px 20px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+        }
+
+        .header h1 {
+            font-size: 18px;
+            font-weight: 600;
+        }
+
+        .container {
+            display: flex;
+            flex: 1;
+            gap: 0;
+            overflow: hidden;
+        }
+
+        .left-panel {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            border-right: 1px solid #3e3e42;
+            overflow-y: auto;
+            overflow-x: hidden;
+        }
+
+        .video-player {
+            flex: 0 0 auto;
+            background: #000;
+            display: none;
+            height: 350px;
+            overflow: hidden;
+            border-bottom: 1px solid #3e3e42;
+        }
+
+        .video-player.active {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .video-player video {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+        }
+
+        .upload-section {
+            padding: 20px;
+            background: #2d2d30;
+            border-bottom: 1px solid #3e3e42;
+            flex: 0 0 auto;
+        }
+
+        .form-group {
+            margin-bottom: 12px;
+        }
+
+        .form-group label {
+            display: block;
+            font-size: 13px;
+            margin-bottom: 4px;
+            color: #cccccc;
+            font-weight: 500;
+        }
+
+        .form-group input,
+        .form-group select {
+            width: 100%;
+            padding: 8px 10px;
+            background: #3c3c3c;
+            border: 1px solid #3e3e42;
+            color: #e0e0e0;
+            border-radius: 4px;
+            font-size: 13px;
+            font-family: inherit;
+        }
+
+        .form-group input::placeholder {
+            color: #858585;
+        }
+
+        .form-group input:focus,
+        .form-group select:focus {
+            outline: none;
+            border-color: #007acc;
+            box-shadow: 0 0 0 2px rgba(0, 122, 204, 0.2);
+        }
+
+        .form-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+        }
+
+        .button-group {
+            display: flex;
+            gap: 8px;
+            margin-top: 12px;
+        }
+
+        button {
+            padding: 8px 16px;
+            background: #007acc;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            font-size: 13px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        button:hover {
+            background: #005a9e;
+        }
+
+        button:active {
+            background: #004578;
+        }
+
+        button:disabled {
+            background: #555;
+            cursor: not-allowed;
+        }
+
+        .status {
+            padding: 12px 20px;
+            font-size: 12px;
+            background: #2d2d30;
+            border-bottom: 1px solid #3e3e42;
+            min-height: 40px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .status.error {
+            color: #f48771;
+        }
+
+        .status.success {
+            color: #89d185;
+        }
+
+        .status.processing {
+            color: #dcdcaa;
+        }
+
+        .spinner {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border: 2px solid rgba(220, 220, 220, 0.3);
+            border-radius: 50%;
+            border-top-color: #dcdcaa;
+            animation: spin 0.8s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .progress {
+            display: none;
+            padding: 0 20px 12px;
+            background: #2d2d30;
+            border-bottom: 1px solid #3e3e42;
+        }
+
+        .progress.active {
+            display: block;
+        }
+
+        .progress-label {
+            font-size: 12px;
+            color: #dcdcaa;
+            margin-bottom: 6px;
+        }
+
+        .progress-track {
+            height: 6px;
+            background: #3c3c3c;
+            border-radius: 3px;
+            overflow: hidden;
+        }
+
+        .progress-fill {
+            height: 100%;
+            width: 0;
+            background: #007acc;
+            transition: width 0.3s;
+        }
+
+        .subtitle-viewer {
+            flex: 0 0 auto;
+            padding: 20px;
+            display: none;
+        }
+
+        .subtitle-viewer.active {
+            display: block;
+        }
+
+        .subtitle-pair {
+            margin-bottom: 16px;
+            padding: 12px;
+            background: #2d2d30;
+            border-radius: 4px;
+            border-left: 3px solid #3e3e42;
+            transition: background 0.2s;
+        }
+
+        .subtitle-pair.flagged {
+            border-left-color: #f48771;
+            background: #2d1e1e;
+        }
+
+        .subtitle-pair:hover {
+            background: #383838;
+        }
+
+        .subtitle-time {
+            font-size: 11px;
+            color: #858585;
+            margin-bottom: 6px;
+            font-family: "Courier New", monospace;
+        }
+
+        .subtitle-label {
+            font-size: 11px;
+            font-weight: 600;
+            color: #9cdcfe;
+            text-transform: uppercase;
+            margin-bottom: 4px;
+        }
+
+        .subtitle-text {
+            font-size: 13px;
+            line-height: 1.5;
+            color: #e0e0e0;
+            margin-bottom: 8px;
+        }
+
+        .subtitle-text.target {
+            color: #ce9178;
+        }
+
+        .flags {
+            font-size: 11px;
+            color: #f48771;
+            margin-top: 6px;
+            padding-top: 6px;
+            border-top: 1px solid #3e3e42;
+        }
+
+        .flag {
+            display: inline-block;
+            margin-right: 6px;
+            padding: 2px 6px;
+            background: rgba(244, 135, 113, 0.2);
+            border: 1px solid #f48771;
+            border-radius: 2px;
+            margin-bottom: 4px;
+        }
+
+        .right-panel {
+            width: 350px;
+            background: #252526;
+            border-left: 1px solid #3e3e42;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .summary {
+            padding: 16px;
+            border-bottom: 1px solid #3e3e42;
+            font-size: 12px;
+        }
+
+        .summary-item {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 8px;
+        }
+
+        .summary-item label {
+            color: #858585;
+        }
+
+        .summary-item value {
+            color: #e0e0e0;
+            font-weight: 500;
+        }
+
+        .qc-status {
+            padding: 8px 16px;
+            border-radius: 4px;
+            margin-bottom: 8px;
+            font-weight: 600;
+            text-align: center;
+        }
+
+        .qc-status.completed {
+            background: rgba(142, 222, 134, 0.2);
+            color: #8ede86;
+        }
+
+        .qc-status.completed_with_flags,
+        .qc-status.partial {
+            background: rgba(220, 220, 170, 0.2);
+            color: #dcdcaa;
+        }
+
+        .qc-status.failed {
+            background: rgba(244, 135, 113, 0.2);
+            color: #f48771;
+        }
+
+        .export-section {
+            padding: 16px;
+            border-top: 1px solid #3e3e42;
+        }
+
+        .export-btn {
+            width: 100%;
+            padding: 10px;
+        }
+
+        .empty-state {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-direction: column;
+            color: #858585;
+            gap: 8px;
+        }
+
+        .empty-state-icon {
+            font-size: 48px;
+            opacity: 0.5;
+        }
+
+        .empty-state-text {
+            font-size: 14px;
+        }
+
+        ::-webkit-scrollbar {
+            width: 10px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: #1e1e1e;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: #3e3e42;
+            border-radius: 5px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: #464647;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🎬 Jev Subtitle Translator</h1>
+    </div>
+
+    <div class="container">
+        <div class="left-panel">
+            <div class="upload-section">
+                <div class="form-group">
+                    <label>SRT File</label>
+                    <input type="file" id="srtFile" accept=".srt" onchange="handleSrtUpload()" />
+                </div>
+
+                <div class="form-group">
+                    <label>Video File (optional)</label>
+                    <input type="file" id="videoFile" accept="video/*,.mp4,.mkv,.webm,.mov,.avi" onchange="handleVideoUpload()" />
+                </div>
+
+                <div class="form-group">
+                    <label>OpenRouter API Key</label>
+                    <input type="password" id="apiKey" placeholder="Enter your OpenRouter API key" />
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Source Language</label>
+                        <select id="sourceLanguage"></select>
+                    </div>
+                    <div class="form-group">
+                        <label>Target Language</label>
+                        <select id="targetLanguage"></select>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label>Translation Model (cost relative to DeepSeek V3 = 1x)</label>
+                    <select id="model">
+                        <option value="deepseek/deepseek-v4-flash-0731">DeepSeek (V4 Flash) — ≈0.2x</option>
+                        <option value="openai/gpt-4o-mini">ChatGPT (GPT-4o Mini) — ≈0.5x</option>
+                        <option value="openai/gpt-5.6-luna" selected>ChatGPT (GPT-5.6 Luna) — ≈0.5x</option>
+                        <option value="deepseek/deepseek-v4-pro">DeepSeek (V4 Pro) — ≈1.4x</option>
+                        <option value="x-ai/grok-4.20">Grok (4.20) — ≈2.7x</option>
+                        <option value="anthropic/claude-haiku-4.5">Claude (Haiku 4.5) — ≈4.4x</option>
+                        <option value="openai/gpt-5.6-terra">ChatGPT (GPT-5.6 Terra) — ≈5.1x</option>
+                        <option value="google/gemini-3.6-flash">Gemini (3.6 Flash) — ≈6.6x</option>
+                        <option value="anthropic/claude-sonnet-5">Claude (Sonnet 5) — ≈8.8x</option>
+                        <option value="openai/gpt-4o">ChatGPT (GPT-4o) — ≈9.1x</option>
+                        <option value="anthropic/claude-sonnet-4.6">Claude (Sonnet 4.6) — ≈13.1x</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label>Jev QC Model</label>
+                    <select id="jevModel">
+                        <option value="typesafe/jev-1.13">Jev 1.13</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label>Translation Prompt (optional)</label>
+                    <input type="text" id="prompt" placeholder="Additional translation guidance" />
+                </div>
+
+                <div class="button-group">
+                    <button id="translateBtn" onclick="handleTranslate()">Translate</button>
+                    <button id="resetBtn" onclick="handleReset()">Reset</button>
+                </div>
+            </div>
+
+            <div class="status" id="status" style="display: none;"></div>
+
+            <div class="progress" id="progress">
+                <div class="progress-label" id="progressLabel"></div>
+                <div class="progress-track"><div class="progress-fill" id="progressFill"></div></div>
+            </div>
+
+            <div class="video-player" id="videoPlayer">
+                <video id="videoElement" controls>
+                    Your browser does not support the video tag.
+                </video>
+            </div>
+
+            <div class="subtitle-viewer" id="subtitleViewer">
+                <div id="subtitleList"></div>
+            </div>
+
+            <div class="empty-state" id="emptyState">
+                <div class="empty-state-icon">📁</div>
+                <div class="empty-state-text">Upload an SRT file to get started</div>
+            </div>
+        </div>
+
+        <div class="right-panel">
+            <div class="summary" id="summary" style="display: none;">
+                <div class="qc-status" id="qcStatus"></div>
+                <div class="summary-item">
+                    <label>Source Subtitles:</label>
+                    <value id="sourceCount">-</value>
+                </div>
+                <div class="summary-item">
+                    <label>Flagged Lines:</label>
+                    <value id="flaggedCount">-</value>
+                </div>
+                <div class="summary-item">
+                    <label>Translation Model:</label>
+                    <value id="translationModel">-</value>
+                </div>
+                <div class="summary-item">
+                    <label>QC Model:</label>
+                    <value id="qcModel">-</value>
+                </div>
+            </div>
+
+            <div class="export-section" id="exportSection" style="display: none;">
+                <button class="export-btn" id="exportReportBtn" onclick="downloadReport()">📥 Download QC Report</button>
+                <button class="export-btn" id="exportSrtBtn" onclick="downloadTranslation()">📥 Download SRT</button>
+            </div>
+
+            <div class="empty-state" id="rightEmptyState" style="display: flex;">
+                <div class="empty-state-icon">👀</div>
+                <div class="empty-state-text">Waiting for results</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentData = null;
+        let videoFile = null;
+
+        // Same list and order as GeekLink's dashboard.js LANGUAGE_OPTIONS.
+        const LANGUAGE_OPTIONS = [
+            { value: "zh-CN", label: "简体中文 (zh-CN)" },
+            { value: "zh-TW", label: "繁體中文 (zh-TW)" },
+            { value: "en", label: "English (en)" },
+            { value: "ja", label: "日本語 (ja)" },
+            { value: "ko", label: "한국어 (ko)" },
+            { value: "fr", label: "Français (fr)" },
+            { value: "de", label: "Deutsch (de)" },
+            { value: "es", label: "Español (es)" },
+            { value: "it", label: "Italiano (it)" },
+            { value: "pt", label: "Português (pt)" },
+            { value: "ru", label: "Русский (ru)" },
+            { value: "ar", label: "العربية (ar)" },
+            { value: "th", label: "ไทย (th)" },
+            { value: "vi", label: "Tiếng Việt (vi)" },
+            { value: "ro", label: "Română (ro)" },
+            { value: "sl", label: "Slovenščina (sl)" },
+            { value: "hi", label: "हिन्दी (hi)" },
+            { value: "tr", label: "Türkçe (tr)" },
+            { value: "nl", label: "Nederlands (nl)" },
+            { value: "pl", label: "Polski (pl)" },
+            { value: "sv", label: "Svenska (sv)" },
+            { value: "uk", label: "Українська (uk)" },
+            { value: "ca", label: "Català (ca)" },
+            { value: "cs", label: "Čeština (cs)" },
+            { value: "no", label: "Norsk (no)" },
+            { value: "da", label: "Dansk (da)" },
+            { value: "fi", label: "Suomi (fi)" },
+            { value: "hu", label: "Magyar (hu)" },
+            { value: "el", label: "Ελληνικά (el)" },
+            { value: "ms", label: "Bahasa Melayu (ms)" },
+            { value: "hr", label: "Hrvatski (hr)" },
+            { value: "sk", label: "Slovenčina (sk)" },
+            { value: "bg", label: "Български (bg)" },
+            { value: "sr", label: "Srpski (sr)" },
+            { value: "he", label: "עברית (he)" },
+            { value: "fa", label: "فارسی (fa)" },
+            { value: "tl", label: "Filipino (tl)" },
+            { value: "lt", label: "Lietuvių (lt)" },
+            { value: "lv", label: "Latviešu (lv)" },
+            { value: "et", label: "Eesti (et)" },
+            { value: "az", label: "Azərbaycan (az)" },
+            { value: "bn", label: "বাংলা (bn)" },
+            { value: "ur", label: "اردو (ur)" },
+            { value: "ta", label: "தமிழ் (ta)" },
+            { value: "ne", label: "नेपाली (ne)" },
+            { value: "sw", label: "Kiswahili (sw)" },
+            { value: "ka", label: "ქართული (ka)" },
+            { value: "is", label: "Íslenska (is)" },
+        ];
+
+        function fillLanguageSelect(id, selected) {
+            const select = document.getElementById(id);
+            for (const { value, label } of LANGUAGE_OPTIONS) {
+                const option = document.createElement('option');
+                option.value = value;
+                option.textContent = label;
+                option.selected = value === selected;
+                select.appendChild(option);
+            }
+        }
+        fillLanguageSelect('sourceLanguage', 'en');
+        fillLanguageSelect('targetLanguage', 'zh-CN');
+
+        // Browsers never restore <input type="file"> across reloads, so the chosen
+        // files and the last result are kept in IndexedDB (Blobs are stored as-is).
+        const session = {
+            open() {
+                return new Promise((resolve, reject) => {
+                    const req = indexedDB.open('jev-subtitle-translator', 1);
+                    req.onupgradeneeded = () => req.result.createObjectStore('session');
+                    req.onsuccess = () => resolve(req.result);
+                    req.onerror = () => reject(req.error);
+                });
+            },
+            async run(mode, fn) {
+                try {
+                    const db = await this.open();
+                    const store = db.transaction('session', mode).objectStore('session');
+                    return await new Promise((resolve, reject) => {
+                        const req = fn(store);
+                        req.onsuccess = () => resolve(req.result);
+                        req.onerror = () => reject(req.error);
+                    });
+                } catch (error) {
+                    console.warn('session storage unavailable:', error);
+                    return undefined;
+                }
+            },
+            get(key) { return this.run('readonly', s => s.get(key)); },
+            set(key, value) { return this.run('readwrite', s => s.put(value, key)); },
+            clear() { return this.run('readwrite', s => s.clear()); },
+        };
+
+        function setInputFile(inputId, file) {
+            const dt = new DataTransfer();
+            dt.items.add(file);
+            document.getElementById(inputId).files = dt.files;
+        }
+
+        function handleSrtUpload() {
+            const file = document.getElementById('srtFile').files[0];
+            if (file) session.set('srt', file);
+        }
+
+        function handleVideoUpload() {
+            const file = document.getElementById('videoFile').files[0];
+            if (file) {
+                showVideo(file);
+                session.set('video', file);
+            }
+        }
+
+        function showVideo(file) {
+            videoFile = file;
+            const videoElement = document.getElementById('videoElement');
+            if (videoElement.src) URL.revokeObjectURL(videoElement.src);
+            videoElement.src = URL.createObjectURL(file);
+            document.getElementById('videoPlayer').classList.add('active');
+            showStatus(`Video loaded: ${file.name}`, 'success');
+        }
+
+        async function restoreSession() {
+            const [srt, video, result] = await Promise.all([
+                session.get('srt'), session.get('video'), session.get('result'),
+            ]);
+            if (srt) setInputFile('srtFile', srt);
+            if (video) {
+                setInputFile('videoFile', video);
+                showVideo(video);
+            }
+            if (result) {
+                currentData = result;
+                renderResults(result);
+            }
+        }
+
+        async function handleTranslate() {
+            const srtFile = document.getElementById('srtFile').files[0];
+            if (!srtFile) {
+                showStatus('Please select an SRT file', 'error');
+                return;
+            }
+
+            const apiKey = document.getElementById('apiKey').value.trim();
+            if (!apiKey) {
+                showStatus('Please enter your API key', 'error');
+                return;
+            }
+
+            const sourceLanguage = document.getElementById('sourceLanguage').value;
+            const targetLanguage = document.getElementById('targetLanguage').value;
+            const model = document.getElementById('model').value;
+            const jevModel = document.getElementById('jevModel').value;
+            const prompt = document.getElementById('prompt').value;
+
+            const formData = new FormData();
+            formData.append('file', srtFile);
+            formData.append('source_language', sourceLanguage);
+            formData.append('target_language', targetLanguage);
+            formData.append('model', model);
+            formData.append('jev_model', jevModel);
+            formData.append('prompt', prompt);
+            formData.append('api_key', apiKey);
+
+            showStatus('Starting...', 'processing');
+            document.getElementById('translateBtn').disabled = true;
+
+            try {
+                const response = await fetch('/api/translate', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (!response.ok) {
+                    const data = await response.json();
+                    showStatus(`Error: ${data.error || response.statusText}`, 'error');
+                    return;
+                }
+
+                let result = null;
+                for await (const event of readNdjson(response.body)) {
+                    if (event.type === 'progress') {
+                        showProgress(event);
+                    } else if (event.type === 'result') {
+                        result = event;
+                    } else if (event.type === 'error') {
+                        throw new Error(event.error);
+                    }
+                }
+                if (!result) {
+                    throw new Error('Connection closed before the result arrived');
+                }
+
+                currentData = result;
+                session.set('result', result);
+                renderResults(result);
+                showStatus('Translation complete! ✓', 'success');
+            } catch (error) {
+                showStatus(`Error: ${error.message}`, 'error');
+            } finally {
+                document.getElementById('translateBtn').disabled = false;
+                document.getElementById('progress').classList.remove('active');
+            }
+        }
+
+        async function* readNdjson(body) {
+            const reader = body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+            while (true) {
+                const { value, done } = await reader.read();
+                if (done) break;
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split('\n');
+                buffer = lines.pop();
+                for (const line of lines) {
+                    if (line.trim()) yield JSON.parse(line);
+                }
+            }
+            if (buffer.trim()) yield JSON.parse(buffer);
+        }
+
+        function showProgress({ stage, done, total }) {
+            const label = stage === 'translate' ? 'Translating' : 'Jev QC';
+            const pct = total ? Math.round((done / total) * 100) : 0;
+            document.getElementById('progress').classList.add('active');
+            document.getElementById('progressLabel').textContent = `${label}: ${done}/${total} lines (${pct}%)`;
+            document.getElementById('progressFill').style.width = `${pct}%`;
+            showStatus(`${label}...`, 'processing');
+        }
+
+        function renderResults(data) {
+            const report = data.report;
+            document.getElementById('emptyState').style.display = 'none';
+            document.getElementById('rightEmptyState').style.display = 'none';
+            document.getElementById('subtitleViewer').classList.add('active');
+            document.getElementById('summary').style.display = 'block';
+            document.getElementById('exportSection').style.display = 'block';
+
+            // Update summary
+            document.getElementById('sourceCount').textContent = report.source_count;
+            document.getElementById('flaggedCount').textContent = report.flagged_count;
+            document.getElementById('translationModel').textContent = report.translation_model;
+            document.getElementById('qcModel').textContent = report.jev_model;
+
+            const qcStatusEl = document.getElementById('qcStatus');
+            qcStatusEl.textContent = `QC Status: ${report.qc_status.toUpperCase()}`;
+            qcStatusEl.className = `qc-status ${report.qc_status}`;
+
+            // report.lines is keyed by cue_index; a line is flagged when its
+            // translation_status is anything other than "completed".
+            const linesByIndex = new Map(report.lines.map(line => [String(line.cue_index), line]));
+
+            const subtitleList = document.getElementById('subtitleList');
+            subtitleList.innerHTML = '';
+
+            data.source_cues.forEach(cue => {
+                const translation = data.translations[cue.id] || '';
+                const line = linesByIndex.get(cue.id);
+                const isFlagged = line && line.translation_status !== 'completed';
+                const flags = line ? [...line.issues] : [];
+                if (report.translation_failures[cue.id]) {
+                    flags.push(`translation_failed: ${report.translation_failures[cue.id]}`);
+                }
+
+                const div = document.createElement('div');
+                div.className = `subtitle-pair ${isFlagged ? 'flagged' : ''}`;
+
+                let html = `
+                    <div class="subtitle-time">#${escapeHtml(cue.number)} · ${cue.start} → ${cue.end}</div>
+                    <div class="subtitle-label">Source</div>
+                    <div class="subtitle-text">${escapeHtml(cue.text)}</div>
+                    <div class="subtitle-label">Target</div>
+                    <div class="subtitle-text target">${escapeHtml(translation)}</div>
+                `;
+
+                if (flags.length > 0) {
+                    html += `<div class="flags">${flags.map(f => `<span class="flag">${escapeHtml(f)}</span>`).join('')}</div>`;
+                }
+
+                div.innerHTML = html;
+                subtitleList.appendChild(div);
+            });
+        }
+
+        function showStatus(message, type = 'info') {
+            const statusEl = document.getElementById('status');
+            statusEl.textContent = '';
+            statusEl.style.display = 'flex';
+            statusEl.className = `status ${type}`;
+
+            if (type === 'processing') {
+                const spinner = document.createElement('div');
+                spinner.className = 'spinner';
+                statusEl.appendChild(spinner);
+            }
+
+            const text = document.createElement('span');
+            text.textContent = message;
+            statusEl.appendChild(text);
+
+            if (type !== 'processing') {
+                setTimeout(() => {
+                    statusEl.style.display = 'none';
+                }, 4000);
+            }
+        }
+
+        function handleReset() {
+            document.getElementById('srtFile').value = '';
+            document.getElementById('videoFile').value = '';
+            document.getElementById('status').style.display = 'none';
+            document.getElementById('videoPlayer').classList.remove('active');
+            document.getElementById('subtitleViewer').classList.remove('active');
+            document.getElementById('summary').style.display = 'none';
+            document.getElementById('exportSection').style.display = 'none';
+            document.getElementById('emptyState').style.display = 'flex';
+            document.getElementById('rightEmptyState').style.display = 'flex';
+
+            const videoElement = document.getElementById('videoElement');
+            if (videoElement.src) URL.revokeObjectURL(videoElement.src);
+            videoElement.removeAttribute('src');
+            videoFile = null;
+            currentData = null;
+            session.clear();
+        }
+
+        function downloadReport() {
+            if (!currentData) return;
+            const json = JSON.stringify(currentData.report, null, 2);
+            const blob = new Blob([json], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'qc-report.json';
+            a.click();
+        }
+
+        function downloadTranslation() {
+            if (!currentData) return;
+            const blob = new Blob([currentData.translated_srt], { type: 'text/plain' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'translated.srt';
+            a.click();
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // Load saved preferences from localStorage
+        function loadPreferences() {
+            const saved = localStorage.getItem('jevTranslatorPrefs');
+            if (saved) {
+                const prefs = JSON.parse(saved);
+                for (const id of ['sourceLanguage', 'targetLanguage', 'model', 'jevModel']) {
+                    const select = document.getElementById(id);
+                    if (prefs[id] && [...select.options].some(o => o.value === prefs[id])) {
+                        select.value = prefs[id];
+                    }
+                }
+                if (prefs.prompt) document.getElementById('prompt').value = prefs.prompt;
+            }
+        }
+
+        // Save preferences to localStorage
+        function savePreferences() {
+            const prefs = {
+                sourceLanguage: document.getElementById('sourceLanguage').value,
+                targetLanguage: document.getElementById('targetLanguage').value,
+                jevModel: document.getElementById('jevModel').value,
+                prompt: document.getElementById('prompt').value,
+                model: document.getElementById('model').value,
+            };
+            localStorage.setItem('jevTranslatorPrefs', JSON.stringify(prefs));
+        }
+
+        // Save preferences when user changes them
+        ['sourceLanguage', 'targetLanguage', 'model', 'jevModel', 'prompt'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) {
+                el.addEventListener('change', savePreferences);
+                el.addEventListener('blur', savePreferences);
+            }
+        });
+
+        document.addEventListener('DOMContentLoaded', () => {
+            loadPreferences();
+            restoreSession();
+        });
+    </script>
+</body>
+</html>

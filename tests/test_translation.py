@@ -46,3 +46,33 @@ def test_translate_retries_only_missing_ids():
     assert '"id":"1"' in client.calls[0]
     assert '"id":"1"' in client.calls[1]
     assert '"id":"0"' not in client.calls[1]
+
+
+def test_translate_reports_progress_after_each_batch():
+    class FakeClient:
+        def chat_json(self, **kwargs):
+            return {"items": [{"id": "0", "translation": "A"}, {"id": "1", "translation": "B"}]}
+
+    progress = []
+    translate_cues(
+        FakeClient(),
+        [_cue(0, "a"), _cue(1, "b"), _cue(2, "c")],
+        model="test/model",
+        source_language="English",
+        target_language="German",
+        batch_size=2,
+        missing_retries=0,
+        on_progress=lambda done, total: progress.append((done, total)),
+    )
+
+    assert progress == [(2, 3), (3, 3)]
+
+
+def test_language_codes_become_names_in_prompt():
+    from jev_subtitle_translator.translator import build_translation_messages
+
+    system = build_translation_messages(
+        [_cue(0, "hi")], source_language="en", target_language="zh-CN"
+    )[0]["content"]
+
+    assert "from English to Chinese" in system

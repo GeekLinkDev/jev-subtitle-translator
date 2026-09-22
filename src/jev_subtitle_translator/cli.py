@@ -26,6 +26,12 @@ def build_parser() -> argparse.ArgumentParser:
     translate.add_argument("--output", type=Path, required=True)
     _add_language_arguments(translate, include_short_aliases=True)
     translate.add_argument("--model", required=True, help="OpenRouter translation model")
+    translate.add_argument(
+        "--temperature",
+        type=float,
+        default=0.0,
+        help="sampling temperature for translation (default 0; ignored by models that reject it)",
+    )
     _add_common_arguments(translate)
 
     qc = subparsers.add_parser("qc", help="check an existing source and translated SRT")
@@ -84,10 +90,11 @@ def _run_translate(args: argparse.Namespace, client: OpenRouterClient) -> int:
         target_language=args.target_language,
         custom_prompt=args.prompt,
         batch_size=args.batch_size,
+        temperature=args.temperature,
     )
     write_srt(args.output, source_cues, translated.translations)
     records, _ = deterministic_check(source_cues, translated.translations)
-    qc_status, qc_errors = run_jev_qc(
+    qc_status, qc_errors, jev_review = run_jev_qc(
         client,
         records,
         source_language=args.source_language,
@@ -106,6 +113,7 @@ def _run_translate(args: argparse.Namespace, client: OpenRouterClient) -> int:
         translation_model=args.model,
         jev_model=args.jev_model,
         translation_failures=translated.failures,
+        jev_review=jev_review,
     )
     report_path = Path(f"{args.output}.qc.json")
     _write_json(report_path, report)
@@ -121,7 +129,7 @@ def _run_qc(args: argparse.Namespace, client: OpenRouterClient) -> int:
         for index, source_cue in enumerate(source_cues)
     }
     records, _ = deterministic_check(source_cues, translations, target_cues=target_cues)
-    qc_status, qc_errors = run_jev_qc(
+    qc_status, qc_errors, jev_review = run_jev_qc(
         client,
         records,
         source_language=args.source_language,
@@ -139,6 +147,7 @@ def _run_qc(args: argparse.Namespace, client: OpenRouterClient) -> int:
         qc_errors=qc_errors,
         translation_model="external",
         jev_model=args.model,
+        jev_review=jev_review,
     )
     _write_json(args.output, report)
     _print_summary(args.translation, args.output, report)
@@ -157,6 +166,13 @@ def _print_summary(output_path: Path, report_path: Path, report: dict) -> None:
         f"QC status: {report['qc_status']}; "
         f"flagged lines: {report['flagged_count']}/{report['source_count']}"
     )
+    jev_review = report.get("jev_review") or {}
+    generation_time = jev_review.get("openrouter_generation_time_ms")
+    latency = jev_review.get("openrouter_latency_ms")
+    if isinstance(generation_time, (int, float)):
+        print(f"OpenRouter generation time: {generation_time:.2f} ms")
+    if isinstance(latency, (int, float)):
+        print(f"OpenRouter latency: {latency:.2f} ms")
 
 
 if __name__ == "__main__":

@@ -35,7 +35,7 @@ def test_jev_flags_semantic_review_and_report_contains_line_data():
     translations = {"0": "Ich sagte ihm, er solle kommen.", "1": "Ich wartete drei Tage."}
     records, _ = deterministic_check(source, translations)
 
-    status, errors = run_jev_qc(
+    status, errors, jev_review = run_jev_qc(
         FakeClient(),
         records,
         source_language="English",
@@ -53,10 +53,33 @@ def test_jev_flags_semantic_review_and_report_contains_line_data():
 
     assert status == "completed"
     assert errors == []
+    assert jev_review["generations"] == []
     assert records["0"]["translation_status"] == STATUS_NEEDS_REVIEW
     assert records["1"]["translation_status"] == STATUS_COMPLETED
     assert report["flagged_count"] == 1
     assert report["lines"][0]["source"] == "I told him not to come."
+
+
+def test_jev_reports_progress_after_each_batch():
+    class FakeClient:
+        def decisions(self, **kwargs):
+            return {pair["id"]: False for pair in kwargs["pairs"]}
+
+    source = read_srt(FIXTURES / "english.srt")[:3]
+    translations = {cue.id: "x" for cue in source}
+    records, _ = deterministic_check(source, translations)
+
+    progress = []
+    run_jev_qc(
+        FakeClient(),
+        records,
+        source_language="English",
+        target_language="German",
+        batch_size=2,
+        on_progress=lambda done, total: progress.append((done, total)),
+    )
+
+    assert progress == [(2, 3), (3, 3)]
 
 
 def test_target_count_mismatch_is_reported():
@@ -75,3 +98,36 @@ def test_successful_run_with_flags_has_explicit_status():
     records, _ = deterministic_check(source, {"0": ""})
 
     assert finalize_qc_status(records, "completed") == "completed_with_flags"
+
+
+def test_report_includes_jev_review_timing():
+    source = read_srt(FIXTURES / "english.srt")[:1]
+    translations = {"0": "Ich sagte ihm, er solle nicht kommen."}
+    records, _ = deterministic_check(source, translations)
+
+    report = build_report(
+        source,
+        translations,
+        records,
+        qc_status="completed",
+        qc_errors=[],
+        translation_model="test/translator",
+        jev_model="typesafe/jev-1.13",
+        jev_review={
+            "model": "typesafe/jev-1.13",
+            "timing_source": "OpenRouter generation metadata",
+            "generations": [
+                {
+                    "generation_id": "gen-dec-test",
+                    "generation_time_ms": 0,
+                    "latency_ms": 128,
+                }
+            ],
+            "openrouter_generation_time_ms": 0,
+            "openrouter_latency_ms": 128,
+        },
+    )
+
+    assert report["jev_review"]["model"] == "typesafe/jev-1.13"
+    assert report["jev_review"]["openrouter_generation_time_ms"] == 0
+    assert report["jev_review"]["openrouter_latency_ms"] == 128
