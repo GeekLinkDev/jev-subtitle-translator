@@ -61,11 +61,62 @@ def test_translate_reports_progress_after_each_batch():
         source_language="English",
         target_language="German",
         batch_size=2,
+        workers=1,
         missing_retries=0,
         on_progress=lambda done, total: progress.append((done, total)),
     )
 
     assert progress == [(2, 3), (3, 3)]
+
+
+def test_batches_split_by_count_and_chars_and_skip_empty_cues():
+    from jev_subtitle_translator.translator import build_batches
+
+    cues = [_cue(0, "a" * 30), _cue(1, ""), _cue(2, "b" * 30), _cue(3, "c"), _cue(4, "d")]
+
+    batches = build_batches(cues, batch_size=2, max_chars=50)
+
+    assert [[cue.id for cue in batch] for batch in batches] == [["0"], ["2", "3"], ["4"]]
+
+
+def test_translate_runs_batches_concurrently_and_merges_all():
+    import threading
+    import time
+
+    class SlowClient:
+        def __init__(self):
+            self.active = 0
+            self.peak = 0
+            self.lock = threading.Lock()
+
+        def chat_json(self, **kwargs):
+            with self.lock:
+                self.active += 1
+                self.peak = max(self.peak, self.active)
+            time.sleep(0.05)
+            with self.lock:
+                self.active -= 1
+            payload = kwargs["messages"][1]["content"].split("\n", 1)[1]
+            import json
+
+            items = json.loads(payload)["items"]
+            return {"items": [{"id": i["id"], "translation": i["text"].upper()} for i in items]}
+
+    client = SlowClient()
+    result = translate_cues(
+        client,
+        [_cue(i, f"t{i}") for i in range(6)],
+        model="test/model",
+        source_language="en",
+        target_language="de",
+        batch_size=2,
+        workers=3,
+    )
+
+    assert result.translations == {str(i): f"T{i}" for i in range(6)}
+    assert result.failures == {}
+    assert result.requests == 3
+    assert client.peak == 3
 
 
 def test_language_codes_become_names_in_prompt():

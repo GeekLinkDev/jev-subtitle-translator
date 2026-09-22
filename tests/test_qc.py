@@ -76,6 +76,7 @@ def test_jev_reports_progress_after_each_batch():
         source_language="English",
         target_language="German",
         batch_size=2,
+        workers=1,
         on_progress=lambda done, total: progress.append((done, total)),
     )
 

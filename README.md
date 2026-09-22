@@ -91,6 +91,11 @@ Languages are given as codes such as `en`, `de`, `ja`, `zh-CN`, or `zh-TW`; see
 `languages.py` for the full list. They are turned into plain names in the
 model prompt, so an unlisted value like `Latin` is passed through unchanged.
 
+Requests are batched the same way as the GeekLink desktop app: a batch closes
+at 40 cues or 5000 characters, empty cues are skipped, and three batches run
+concurrently for both translation and Jev review. Tune with `--batch-size` and
+`--workers`.
+
 Additional translation guidance can be supplied with `--prompt`. Translation
 uses `temperature` 0 so results are reproducible; `--temperature` overrides it
 for experiments. Models that reject the parameter (GPT-5.6, Claude Sonnet 5)

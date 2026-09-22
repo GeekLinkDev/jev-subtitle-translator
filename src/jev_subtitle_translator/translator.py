@@ -2,12 +2,19 @@
 
 import json
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from typing import Any
 
 from .languages import language_name
 from .models import Cue
 from .openrouter import OpenRouterClient, OpenRouterError
+
+# Same batching as GeekLink: a batch closes at 40 cues or 5000 characters,
+# whichever comes first, and three batches are in flight at a time.
+DEFAULT_BATCH_SIZE = 40
+DEFAULT_BATCH_CHARS = 5000
+DEFAULT_WORKERS = 3
 
 
 @dataclass
@@ -19,6 +26,34 @@ class TranslationResult:
     requests: int = 0
 
 
+def build_batches(
+    cues: list[Cue],
+    *,
+    batch_size: int = DEFAULT_BATCH_SIZE,
+    max_chars: int = DEFAULT_BATCH_CHARS,
+) -> list[list[Cue]]:
+    """Group non-empty cues into request batches bounded by count and characters."""
+
+    batch_size = max(1, batch_size)
+    batches: list[list[Cue]] = []
+    current: list[Cue] = []
+    current_chars = 0
+    for cue in cues:
+        text = cue.text.strip()
+        if not text:
+            continue
+        chars = max(1, len(text))
+        overflow = max_chars > 0 and current and current_chars + chars > max_chars
+        if current and (len(current) >= batch_size or overflow):
+            batches.append(current)
+            current, current_chars = [], 0
+        current.append(cue)
+        current_chars += chars
+    if current:
+        batches.append(current)
+    return batches
+
+
 def translate_cues(
     client: OpenRouterClient,
     cues: list[Cue],
@@ -27,59 +62,95 @@ def translate_cues(
     source_language: str,
     target_language: str,
     custom_prompt: str = "",
-    batch_size: int = 40,
+    batch_size: int = DEFAULT_BATCH_SIZE,
+    max_batch_chars: int = DEFAULT_BATCH_CHARS,
+    workers: int = DEFAULT_WORKERS,
     missing_retries: int = 2,
     temperature: float = 0.0,
     on_progress: Callable[[int, int], None] | None = None,
 ) -> TranslationResult:
-    """Translate cues without recursively splitting ordinary failures.
+    """Translate cues in concurrent batches without recursively splitting failures.
 
-    ``on_progress(done, total)`` is called after each batch finishes.
+    ``on_progress(done, total)`` is called after each batch finishes; ``done``
+    counts cues, so it is monotonic even though batches complete out of order.
     """
 
     result = TranslationResult()
-    batch_size = max(1, batch_size)
-    for start in range(0, len(cues), batch_size):
-        batch = cues[start : start + batch_size]
-        pending = list(batch)
-        last_error = ""
+    batches = build_batches(cues, batch_size=batch_size, max_chars=max_batch_chars)
+    total = sum(len(batch) for batch in batches)
+    done = 0
 
-        for _ in range(max(1, missing_retries + 1)):
+    def translate_batch(batch: list[Cue]) -> TranslationResult:
+        return _translate_batch(
+            client,
+            batch,
+            model=model,
+            source_language=source_language,
+            target_language=target_language,
+            custom_prompt=custom_prompt,
+            missing_retries=missing_retries,
+            temperature=temperature,
+        )
+
+    with ThreadPoolExecutor(max_workers=max(1, workers)) as pool:
+        futures = {pool.submit(translate_batch, batch): batch for batch in batches}
+        for future in as_completed(futures):
+            partial = future.result()
+            result.translations.update(partial.translations)
+            result.failures.update(partial.failures)
+            result.requests += partial.requests
+            done += len(futures[future])
+            if on_progress is not None:
+                on_progress(done, total)
+
+    return result
+
+
+def _translate_batch(
+    client: OpenRouterClient,
+    batch: list[Cue],
+    *,
+    model: str,
+    source_language: str,
+    target_language: str,
+    custom_prompt: str,
+    missing_retries: int,
+    temperature: float,
+) -> TranslationResult:
+    result = TranslationResult()
+    pending = list(batch)
+    last_error = ""
+
+    for _ in range(max(1, missing_retries + 1)):
+        if not pending:
+            break
+        messages = build_translation_messages(
+            pending,
+            source_language=source_language,
+            target_language=target_language,
+            custom_prompt=custom_prompt,
+        )
+        result.requests += 1
+        try:
+            response = client.chat_json(
+                model=model,
+                messages=messages,
+                schema_name="subtitle_translations",
+                temperature=temperature,
+            )
+            parsed = parse_translation_response(response, {cue.id for cue in pending})
+            result.translations.update(parsed)
+            pending = [cue for cue in pending if cue.id not in parsed]
             if not pending:
                 break
-            messages = build_translation_messages(
-                pending,
-                source_language=source_language,
-                target_language=target_language,
-                custom_prompt=custom_prompt,
-            )
-            result.requests += 1
-            try:
-                response = client.chat_json(
-                    model=model,
-                    messages=messages,
-                    schema_name="subtitle_translations",
-                    temperature=temperature,
-                )
-                parsed = parse_translation_response(response, {cue.id for cue in pending})
-                for subtitle_id, translation in parsed.items():
-                    result.translations[subtitle_id] = translation
-                pending = [cue for cue in pending if cue.id not in parsed]
-                if not pending:
-                    break
-                last_error = "missing_translation_ids"
-            except (OpenRouterError, ValueError, TypeError) as exc:
-                last_error = str(exc) or type(exc).__name__
-                if isinstance(exc, OpenRouterError) and exc.status in {400, 401, 403}:
-                    break
-                continue
+            last_error = "missing_translation_ids"
+        except (OpenRouterError, ValueError, TypeError) as exc:
+            last_error = str(exc) or type(exc).__name__
+            if isinstance(exc, OpenRouterError) and exc.status in {400, 401, 403}:
+                break
 
-        if pending:
-            for cue in pending:
-                result.failures[cue.id] = last_error or "missing_translation"
-        if on_progress is not None:
-            on_progress(min(start + batch_size, len(cues)), len(cues))
-
+    for cue in pending:
+        result.failures[cue.id] = last_error or "missing_translation"
     return result
 
 

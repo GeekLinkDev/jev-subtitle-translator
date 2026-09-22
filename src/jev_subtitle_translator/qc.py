@@ -2,6 +2,7 @@
 
 import hashlib
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any
 
 from .languages import language_name
@@ -94,11 +95,13 @@ def run_jev_qc(
     model: str = "typesafe/jev-1.13",
     custom_prompt: str = "",
     batch_size: int = 40,
+    workers: int = 3,
     on_progress: Callable[[int, int], None] | None = None,
 ) -> tuple[str, list[str], dict[str, Any]]:
     """Run Jev over every structurally valid non-empty translation pair.
 
-    ``on_progress(done, total)`` is called after each batch finishes.
+    Batches run concurrently; ``on_progress(done, total)`` is called as each
+    one finishes, with ``done`` counting pairs so it stays monotonic.
     """
 
     jev_review = {
@@ -127,39 +130,48 @@ def run_jev_qc(
     guidelines = build_jev_guidelines(source_language, target_language, custom_prompt)
     failures: list[str] = []
     checked = 0
+    done = 0
     batch_size = max(1, batch_size)
-    for start in range(0, len(pairs), batch_size):
-        batch = pairs[start : start + batch_size]
-        verdicts: dict[str, bool] | None = None
+    batches = [pairs[start : start + batch_size] for start in range(0, len(pairs), batch_size)]
+
+    def review_batch(batch: list[dict[str, str]]) -> tuple[dict[str, bool] | None, str, Any]:
         last_error = ""
         for _ in range(2):
             try:
                 verdicts = client.decisions(model=model, pairs=batch, guidelines=guidelines)
-                generation_metadata = getattr(client, "last_generation_metadata", None)
-                if isinstance(generation_metadata, dict):
-                    jev_review["generations"].append(generation_metadata)
-                break
+                return verdicts, "", getattr(client, "last_generation_metadata", None)
             except OpenRouterError as exc:
                 last_error = str(exc)
                 if exc.status in {400, 401, 403}:
                     break
+        return None, last_error, None
 
-        if verdicts is None:
-            failures.append(last_error or "jev_request_failed")
-        else:
-            checked += len(verdicts)
-            for subtitle_id, needs_review in verdicts.items():
-                if needs_review and subtitle_id in records:
-                    records[subtitle_id]["translation_status"] = STATUS_NEEDS_REVIEW
-                    records[subtitle_id]["needs_review"] = True
-                    records[subtitle_id].setdefault("issues", []).append("jev_review")
+    # Records are only mutated here on the calling thread, never inside workers.
+    with ThreadPoolExecutor(max_workers=max(1, workers)) as pool:
+        futures = {pool.submit(review_batch, batch): batch for batch in batches}
+        for future in as_completed(futures):
+            batch = futures[future]
+            verdicts, last_error, generation_metadata = future.result()
+            if isinstance(generation_metadata, dict):
+                jev_review["generations"].append(generation_metadata)
 
-            missing = [pair["id"] for pair in batch if pair["id"] not in verdicts]
-            if missing:
-                failures.append(f"jev_missing_verdicts:{','.join(missing)}")
+            if verdicts is None:
+                failures.append(last_error or "jev_request_failed")
+            else:
+                checked += len(verdicts)
+                for subtitle_id, needs_review in verdicts.items():
+                    if needs_review and subtitle_id in records:
+                        records[subtitle_id]["translation_status"] = STATUS_NEEDS_REVIEW
+                        records[subtitle_id]["needs_review"] = True
+                        records[subtitle_id].setdefault("issues", []).append("jev_review")
 
-        if on_progress is not None:
-            on_progress(min(start + batch_size, len(pairs)), len(pairs))
+                missing = [pair["id"] for pair in batch if pair["id"] not in verdicts]
+                if missing:
+                    failures.append(f"jev_missing_verdicts:{','.join(missing)}")
+
+            done += len(batch)
+            if on_progress is not None:
+                on_progress(done, len(pairs))
 
     for report_key, metadata_key in (
         ("openrouter_generation_time_ms", "generation_time_ms"),

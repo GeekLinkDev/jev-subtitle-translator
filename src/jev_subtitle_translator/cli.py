@@ -43,6 +43,7 @@ def build_parser() -> argparse.ArgumentParser:
     qc.add_argument("--prompt", default="", help="optional translation guidance for QC context")
     qc.add_argument("--timeout", type=float, default=120.0)
     qc.add_argument("--batch-size", type=int, default=40)
+    qc.add_argument("--workers", type=int, default=3, help="concurrent Jev batches")
 
     return parser
 
@@ -63,6 +64,7 @@ def _add_common_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--prompt", default="", help="additional translation guidance")
     parser.add_argument("--timeout", type=float, default=120.0)
     parser.add_argument("--batch-size", type=int, default=40)
+    parser.add_argument("--workers", type=int, default=3, help="concurrent request batches")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -90,6 +92,7 @@ def _run_translate(args: argparse.Namespace, client: OpenRouterClient) -> int:
         target_language=args.target_language,
         custom_prompt=args.prompt,
         batch_size=args.batch_size,
+        workers=args.workers,
         temperature=args.temperature,
     )
     write_srt(args.output, source_cues, translated.translations)
@@ -102,6 +105,7 @@ def _run_translate(args: argparse.Namespace, client: OpenRouterClient) -> int:
         model=args.jev_model,
         custom_prompt=args.prompt,
         batch_size=args.batch_size,
+        workers=args.workers,
     )
     qc_status = finalize_qc_status(records, qc_status)
     report = build_report(
@@ -137,6 +141,7 @@ def _run_qc(args: argparse.Namespace, client: OpenRouterClient) -> int:
         model=args.model,
         custom_prompt=args.prompt,
         batch_size=args.batch_size,
+        workers=args.workers,
     )
     qc_status = finalize_qc_status(records, qc_status)
     report = build_report(

@@ -1,6 +1,7 @@
 """Small dependency-free OpenRouter client used by the CLI."""
 
 import json
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -73,7 +74,17 @@ class OpenRouterClient:
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
         self.attempts = max(1, attempts)
-        self.last_generation_metadata: dict[str, Any] | None = None
+        self._thread_state = threading.local()
+
+    @property
+    def last_generation_metadata(self) -> dict[str, Any] | None:
+        """Metadata of the last decisions() call made on the current thread."""
+
+        return getattr(self._thread_state, "generation_metadata", None)
+
+    @last_generation_metadata.setter
+    def last_generation_metadata(self, value: dict[str, Any] | None) -> None:
+        self._thread_state.generation_metadata = value
 
     def chat_json(
         self,
