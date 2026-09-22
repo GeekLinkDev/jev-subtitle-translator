@@ -8,6 +8,10 @@ Translate SRT files, preserve their timing, and review suspicious lines in a loc
 web interface or JSON report. Translation uses OpenRouter models that support
 JSON Schema structured output; Jev automatically checks the results.
 
+**No silent missing lines.** Every source subtitle keeps its original position
+and timing in the output. Missing or empty translations are retried by subtitle
+ID and, if still unresolved, remain visible and are flagged in the QC report.
+
 ## Quick start
 
 Requires **Python 3.10+** and an **OpenRouter API key**. On macOS or Linux:
