@@ -23,7 +23,7 @@ log = logging.getLogger("uvicorn.error")
 def create_app() -> FastAPI:
     """Create and configure the FastAPI application."""
 
-    app = FastAPI(title="Jev Subtitle Translator Web UI")
+    app = FastAPI(title="GeekLink Subtitle Translator")
 
     @app.get("/")
     def root():
