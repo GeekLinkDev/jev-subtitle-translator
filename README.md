@@ -125,14 +125,6 @@ SRT parser -> structured translation client -> SRT writer
 GeekLink-specific licensing, credits, authentication, analytics, and service
 adapters are intentionally outside this repository.
 
-## Relationship to other subtitle translators
-
-The project is inspired by the workflow and usability of
-[rockbenben/subtitle-translator](https://github.com/rockbenben/subtitle-translator),
-an MIT-licensed subtitle translation project. The first release does not include
-source code from that repository. If compatible code is reused later, its
-copyright and license notices will be retained.
-
 ## Contributing
 
 Useful contributions include reproducible subtitle failure cases, provider
