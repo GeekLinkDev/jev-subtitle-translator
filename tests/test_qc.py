@@ -35,7 +35,7 @@ def test_jev_flags_semantic_review_and_report_contains_line_data():
     translations = {"0": "Ich sagte ihm, er solle kommen.", "1": "Ich wartete drei Tage."}
     records, _ = deterministic_check(source, translations)
 
-    status, errors, jev_review = run_jev_qc(
+    status, errors = run_jev_qc(
         FakeClient(),
         records,
         source_language="English",
@@ -53,7 +53,6 @@ def test_jev_flags_semantic_review_and_report_contains_line_data():
 
     assert status == "completed"
     assert errors == []
-    assert jev_review["generations"] == []
     assert records["0"]["translation_status"] == STATUS_NEEDS_REVIEW
     assert records["1"]["translation_status"] == STATUS_COMPLETED
     assert report["flagged_count"] == 1
@@ -99,36 +98,3 @@ def test_successful_run_with_flags_has_explicit_status():
     records, _ = deterministic_check(source, {"0": ""})
 
     assert finalize_qc_status(records, "completed") == "completed_with_flags"
-
-
-def test_report_includes_jev_review_timing():
-    source = read_srt(FIXTURES / "english.srt")[:1]
-    translations = {"0": "Ich sagte ihm, er solle nicht kommen."}
-    records, _ = deterministic_check(source, translations)
-
-    report = build_report(
-        source,
-        translations,
-        records,
-        qc_status="completed",
-        qc_errors=[],
-        translation_model="test/translator",
-        jev_model="typesafe/jev-1.13",
-        jev_review={
-            "model": "typesafe/jev-1.13",
-            "timing_source": "OpenRouter generation metadata",
-            "generations": [
-                {
-                    "generation_id": "gen-dec-test",
-                    "generation_time_ms": 0,
-                    "latency_ms": 128,
-                }
-            ],
-            "openrouter_generation_time_ms": 0,
-            "openrouter_latency_ms": 128,
-        },
-    )
-
-    assert report["jev_review"]["model"] == "typesafe/jev-1.13"
-    assert report["jev_review"]["openrouter_generation_time_ms"] == 0
-    assert report["jev_review"]["openrouter_latency_ms"] == 128

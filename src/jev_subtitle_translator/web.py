@@ -73,7 +73,7 @@ def create_app() -> FastAPI:
                     on_progress=progress("translate"),
                 )
                 records, _ = deterministic_check(source_cues, translated.translations)
-                qc_status, qc_errors, jev_review = run_jev_qc(
+                qc_status, qc_errors = run_jev_qc(
                     client,
                     records,
                     source_language=source_language,
@@ -92,7 +92,6 @@ def create_app() -> FastAPI:
                     translation_model=model,
                     jev_model=jev_model,
                     translation_failures=translated.failures,
-                    jev_review=jev_review,
                 )
                 events.put(
                     {

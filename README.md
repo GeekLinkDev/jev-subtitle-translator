@@ -126,7 +126,6 @@ The report contains:
 - deterministic issues such as empty translations, mismatched IDs, timing
   changes, and count mismatches;
 - Jev review flags for individual subtitle lines;
-- OpenRouter-reported Jev generation time, latency, and generation IDs;
 - request or response errors that need attention.
 
 ## Data handling

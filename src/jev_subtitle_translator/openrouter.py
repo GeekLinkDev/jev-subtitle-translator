@@ -1,13 +1,11 @@
 """Small dependency-free OpenRouter client used by the CLI."""
 
 import json
-import threading
 import time
 import urllib.error
 import urllib.request
 from collections.abc import Mapping
 from typing import Any
-from urllib.parse import urlencode
 
 
 class OpenRouterError(RuntimeError):
@@ -74,17 +72,6 @@ class OpenRouterClient:
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
         self.attempts = max(1, attempts)
-        self._thread_state = threading.local()
-
-    @property
-    def last_generation_metadata(self) -> dict[str, Any] | None:
-        """Metadata of the last decisions() call made on the current thread."""
-
-        return getattr(self._thread_state, "generation_metadata", None)
-
-    @last_generation_metadata.setter
-    def last_generation_metadata(self, value: dict[str, Any] | None) -> None:
-        self._thread_state.generation_metadata = value
 
     def chat_json(
         self,
@@ -143,7 +130,6 @@ class OpenRouterClient:
     ) -> dict[str, bool]:
         """Ask a Jev Decisions model for one review verdict per subtitle ID."""
 
-        self.last_generation_metadata = None
         subtitles = []
         questions: dict[str, Any] = {}
         for pair in pairs:
@@ -180,9 +166,6 @@ class OpenRouterClient:
                 "questions": questions,
             },
         )
-        generation_id = payload.get("id") or payload.get("generation_id")
-        if isinstance(generation_id, str) and generation_id.strip():
-            self.last_generation_metadata = self._get_generation_metadata(generation_id.strip())
         answers = payload.get("answers")
         if not isinstance(answers, dict):
             raise OpenRouterError("Jev response contains no answers object")
@@ -191,53 +174,6 @@ class OpenRouterClient:
             for subtitle_id in questions
             if subtitle_id in answers
         }
-
-    def _get_generation_metadata(self, generation_id: str) -> dict[str, Any]:
-        last_error = ""
-        for attempt in range(4):
-            request = urllib.request.Request(
-                f"{self.base_url}/api/v1/generation?{urlencode({'id': generation_id})}",
-                headers={"Authorization": f"Bearer {self.api_key}"},
-                method="GET",
-            )
-            try:
-                with urllib.request.urlopen(request, timeout=self.timeout) as response:
-                    payload = json.loads(response.read().decode("utf-8"))
-                data = payload.get("data")
-                if not isinstance(data, dict):
-                    return {
-                        "generation_id": generation_id,
-                        "metadata_error": "generation metadata contains no data object",
-                    }
-                provider_responses = data.get("provider_responses")
-                provider_latencies = []
-                if isinstance(provider_responses, list):
-                    provider_latencies = [
-                        item.get("latency")
-                        for item in provider_responses
-                        if isinstance(item, dict)
-                        and isinstance(item.get("latency"), (int, float))
-                    ]
-                return {
-                    "generation_id": data.get("id") or generation_id,
-                    "model": data.get("model"),
-                    "provider": data.get("provider_name"),
-                    "api_type": data.get("api_type"),
-                    "generation_time_ms": data.get("generation_time"),
-                    "latency_ms": data.get("latency"),
-                    "provider_latencies_ms": provider_latencies,
-                }
-            except urllib.error.HTTPError as exc:
-                detail = exc.read().decode("utf-8", errors="replace")[:500]
-                last_error = f"OpenRouter HTTP {exc.code}: {detail}"
-                if exc.code != 404 or attempt == 3:
-                    break
-            except (urllib.error.URLError, TimeoutError, OSError, json.JSONDecodeError) as exc:
-                last_error = f"generation metadata request failed: {exc}"
-                if attempt == 3:
-                    break
-            time.sleep(0.25 * (2**attempt))
-        return {"generation_id": generation_id, "metadata_error": last_error}
 
     def _request_json(self, path: str, body: dict[str, Any]) -> dict[str, Any]:
         request = urllib.request.Request(

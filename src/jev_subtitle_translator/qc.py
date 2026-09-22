@@ -97,20 +97,12 @@ def run_jev_qc(
     batch_size: int = 40,
     workers: int = 3,
     on_progress: Callable[[int, int], None] | None = None,
-) -> tuple[str, list[str], dict[str, Any]]:
+) -> tuple[str, list[str]]:
     """Run Jev over every structurally valid non-empty translation pair.
 
     Batches run concurrently; ``on_progress(done, total)`` is called as each
     one finishes, with ``done`` counting pairs so it stays monotonic.
     """
-
-    jev_review = {
-        "model": model,
-        "timing_source": "OpenRouter generation metadata",
-        "generations": [],
-        "openrouter_generation_time_ms": None,
-        "openrouter_latency_ms": None,
-    }
 
     pairs = [
         {
@@ -125,7 +117,7 @@ def run_jev_qc(
         and record.get("translation", "").strip()
     ]
     if not pairs:
-        return QC_COMPLETED, [], jev_review
+        return QC_COMPLETED, []
 
     guidelines = build_jev_guidelines(source_language, target_language, custom_prompt)
     failures: list[str] = []
@@ -134,26 +126,24 @@ def run_jev_qc(
     batch_size = max(1, batch_size)
     batches = [pairs[start : start + batch_size] for start in range(0, len(pairs), batch_size)]
 
-    def review_batch(batch: list[dict[str, str]]) -> tuple[dict[str, bool] | None, str, Any]:
+    def review_batch(batch: list[dict[str, str]]) -> tuple[dict[str, bool] | None, str]:
         last_error = ""
         for _ in range(2):
             try:
                 verdicts = client.decisions(model=model, pairs=batch, guidelines=guidelines)
-                return verdicts, "", getattr(client, "last_generation_metadata", None)
+                return verdicts, ""
             except OpenRouterError as exc:
                 last_error = str(exc)
                 if exc.status in {400, 401, 403}:
                     break
-        return None, last_error, None
+        return None, last_error
 
     # Records are only mutated here on the calling thread, never inside workers.
     with ThreadPoolExecutor(max_workers=max(1, workers)) as pool:
         futures = {pool.submit(review_batch, batch): batch for batch in batches}
         for future in as_completed(futures):
             batch = futures[future]
-            verdicts, last_error, generation_metadata = future.result()
-            if isinstance(generation_metadata, dict):
-                jev_review["generations"].append(generation_metadata)
+            verdicts, last_error = future.result()
 
             if verdicts is None:
                 failures.append(last_error or "jev_request_failed")
@@ -173,22 +163,11 @@ def run_jev_qc(
             if on_progress is not None:
                 on_progress(done, len(pairs))
 
-    for report_key, metadata_key in (
-        ("openrouter_generation_time_ms", "generation_time_ms"),
-        ("openrouter_latency_ms", "latency_ms"),
-    ):
-        values = [
-            generation[metadata_key]
-            for generation in jev_review["generations"]
-            if isinstance(generation.get(metadata_key), (int, float))
-        ]
-        jev_review[report_key] = sum(values) if values else None
-
     if checked == 0 and failures:
-        return QC_FAILED, failures, jev_review
+        return QC_FAILED, failures
     if failures:
-        return QC_PARTIAL, failures, jev_review
-    return QC_COMPLETED, [], jev_review
+        return QC_PARTIAL, failures
+    return QC_COMPLETED, []
 
 
 def finalize_qc_status(records: dict[str, dict[str, Any]], status: str) -> str:
@@ -214,7 +193,6 @@ def build_report(
     translation_model: str,
     jev_model: str,
     translation_failures: dict[str, str] | None = None,
-    jev_review: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build a portable JSON report without writing any telemetry."""
 
@@ -230,7 +208,6 @@ def build_report(
         "flagged_count": len(flagged),
         "translation_model": translation_model,
         "jev_model": jev_model,
-        "jev_review": jev_review or {},
         "translation_failures": translation_failures or {},
         "qc_errors": qc_errors,
         "lines": line_records,
