@@ -1,162 +1,86 @@
 # GeekLink Jev Subtitle Translator
 
-Translate SRT subtitles with an OpenRouter-compatible language model and review
-the result with Jev.
+Translate with your preferred LLM. Let Jev flag subtitles worth reviewing.
 
 ![Demo of subtitle translation and Jev flagging lines for human review](docs/assets/translation-jev-qc.gif)
 
-Use the local web interface or the command line to translate and review subtitles.
-The tool keeps the source cue order and timing, uses structured output for
-translation responses, and writes a line-level JSON report for human review.
+Translate SRT files, preserve their timing, and review suspicious lines in a local
+web interface or JSON report. Translation uses OpenRouter models that support
+JSON Schema structured output; Jev automatically checks the results.
 
-For the GeekLink desktop subtitle translator, visit
-[geeklink.dev/subtitle-translator](https://geeklink.dev/subtitle-translator/).
+## Quick start
 
-## Features
-
-- Translate SRT files between supported languages.
-- Use any translation model available through OpenRouter.
-- Request translations with native JSON Schema structured output.
-- Preserve subtitle IDs, order, and timing information.
-- Run deterministic checks before semantic quality control.
-- Ask Jev to flag omissions, changed meaning, names, numbers, negation, and
-  other suspicious translations.
-- Review the result in a portable local JSON report.
-
-## Workflow
-
-```text
-source.srt
-    |
-    v
-Structured translation
-    |
-    v
-translated.srt
-    |
-    v
-Deterministic checks + Jev review
-    |
-    v
-translated.srt.qc.json
-```
-
-Jev identifies lines that deserve human review. It does not rewrite subtitles,
-and an unflagged line should not be treated as a guarantee of perfect
-translation.
-
-## Requirements
-
-- Python 3.10 or newer
-- An OpenRouter API key
-
-## Installation
+Requires **Python 3.10+** and an **OpenRouter API key**. On macOS or Linux:
 
 ```bash
 git clone https://github.com/GeekLinkDev/jev-subtitle-translator.git
 cd jev-subtitle-translator
-python3 -m venv .venv
-.venv/bin/python -m pip install -e ".[dev]"
+bash run_web.sh
+```
+
+Open [http://127.0.0.1:8000](http://127.0.0.1:8000), then:
+
+1. Choose an SRT file, enter your API key, and select the languages and translation model.
+2. Click **Translate**. Jev review runs automatically after translation.
+3. Review the highlighted lines and download the translated SRT or QC report.
+
+A video file is optional and can be added for local preview.
+
+## What Jev checks
+
+- Missing meaning, unsupported additions, or reversed negation.
+- Changed names, numbers, dates, or units.
+- Truncated or repeated content.
+
+Empty translations and structural problems are checked locally first. Jev then
+reviews each remaining non-empty source/translation pair with a yes/no question:
+**Does this translation need human review?**
+
+A flag is a suggestion to inspect a line, not a confirmed error. Jev does not
+rewrite translations and can miss mistakes. The [review rules](src/jev_subtitle_translator/qc.py)
+and [Jev request](src/jev_subtitle_translator/openrouter.py) are in the source code.
+
+## Command line
+
+<details>
+<summary>Translate an SRT or check an existing translation</summary>
+
+After the setup above, set your key and run either command:
+
+```bash
 export OPENROUTER_API_KEY="your-api-key"
-```
 
-## Translate and check an SRT file
+# Translate and automatically run Jev review.
+.venv/bin/jev-subtitle-translator translate input.srt \
+  --source-language en --target-language de \
+  --model openai/gpt-4o-mini --output translated.srt
 
-```bash
-.venv/bin/jev-subtitle-translator translate \
-  input.srt \
-  --source-language en \
-  --target-language de \
-  --model your/provider-model \
-  --output translated.srt
-```
-
-The command writes:
-
-- `translated.srt`, containing the translated subtitles;
-- `translated.srt.qc.json`, containing the translation and quality-control
-  results for each source cue.
-
-The Jev model defaults to `typesafe/jev-1.13`. To select another model:
-
-```bash
-.venv/bin/jev-subtitle-translator translate \
-  input.srt \
-  --source-language en \
-  --target-language de \
-  --model your/provider-model \
-  --jev-model your/jev-model \
-  --output translated.srt
-```
-
-Languages are given as codes such as `en`, `de`, `ja`, `zh-CN`, or `zh-TW`; see
-`languages.py` for the full list. They are turned into plain names in the
-model prompt, so an unlisted value like `Latin` is passed through unchanged.
-
-Requests are batched the same way as the GeekLink desktop app: a batch closes
-at 40 cues or 5000 characters, empty cues are skipped, and three batches run
-concurrently for both translation and Jev review. Tune with `--batch-size` and
-`--workers`.
-
-Additional translation guidance can be supplied with `--prompt`. Translation
-uses `temperature` 0 so results are reproducible; `--temperature` overrides it
-for experiments. Models that reject the parameter (GPT-5.6, Claude Sonnet 5)
-ignore it, and reasoning models have thinking disabled because it slows
-subtitle batches down without improving them.
-
-## Check an existing translation
-
-```bash
+# Check an existing translation without translating it again.
 .venv/bin/jev-subtitle-translator qc \
-  --source input.srt \
-  --translation translated.srt \
-  --source-language en \
-  --target-language de \
-  --output qc-report.json
+  --source input.srt --translation translated.srt \
+  --source-language en --target-language de --output qc-report.json
 ```
 
-This mode checks an existing source and translated SRT pair without translating
-it again.
+The translate command writes `translated.srt` and `translated.srt.qc.json`.
+Replace the example translation model with your preferred compatible model.
+Jev defaults to `typesafe/jev-1.13`.
 
-## Quality-control report
+Use `--prompt` for additional translation guidance, `--batch-size` and `--workers`
+to tune requests, or either command's `--help` for all options.
 
-The report contains:
+</details>
 
-- the overall quality-control status;
-- the source and translated cue counts;
-- the selected model names;
-- deterministic issues such as empty translations, mismatched IDs, timing
-  changes, and count mismatches;
-- Jev review flags for individual subtitle lines;
-- request or response errors that need attention.
+## Project information
 
-## Data handling
+**API usage:** Bring your own OpenRouter key. Translation and Jev review incur
+API charges. Subtitle text is sent to OpenRouter and the selected providers;
+the interface runs locally.
 
-Subtitle text is sent to OpenRouter and the models selected by the user. The
-tool writes translation output and quality-control reports to the local
-filesystem. Users should review the terms and privacy policies of their chosen
-providers before processing sensitive material.
+**GeekLink:** Looking for the desktop app? Visit
+[GeekLink Subtitle Translator](https://geeklink.dev/subtitle-translator/).
 
-## Development
+**Development:** Install test dependencies with `.venv/bin/python -m pip install -e ".[dev]"`
+and run `.venv/bin/python -m pytest -q`. See [CONTRIBUTING.md](CONTRIBUTING.md)
+to contribute fixes or reproducible subtitle examples.
 
-Install the development dependencies and run the test suite:
-
-```bash
-.venv/bin/python -m pytest -q
-python3 -m compileall -q src tests
-```
-
-## Contributing
-
-Useful contributions include reproducible subtitle failure cases, provider
-compatibility reports, parser tests, and evaluation data that does not contain
-private or confidential material. When reporting a quality-control issue,
-include the source line, translated line, expected review decision, provider,
-and model when possible.
-
-## License
-
-Copyright (C) 2026 GeekLinkDev.
-
-This project is licensed under the GNU General Public License version 3 or any
-later version. See [LICENSE](LICENSE).
+**License:** [GPL-3.0-or-later](LICENSE). Copyright (C) 2026 GeekLinkDev.
