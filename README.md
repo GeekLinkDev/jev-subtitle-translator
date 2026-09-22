@@ -3,9 +3,11 @@
 Translate SRT subtitles with an OpenRouter-compatible language model and review
 the result with Jev.
 
-This is a command-line tool for subtitle translation and quality control. It
-keeps the source cue order and timing, uses structured output for translation
-responses, and writes a line-level JSON report for human review.
+![Demo of subtitle translation and Jev flagging lines for human review](docs/assets/translation-jev-qc.gif)
+
+Use the local web interface or the command line to translate and review subtitles.
+The tool keeps the source cue order and timing, uses structured output for
+translation responses, and writes a line-level JSON report for human review.
 
 For the GeekLink desktop subtitle translator, visit
 [geeklink.dev/subtitle-translator](https://geeklink.dev/subtitle-translator/).
