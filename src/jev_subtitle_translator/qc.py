@@ -119,25 +119,46 @@ def deterministic_check(
 
 
 def build_jev_guidelines(source_language: str, target_language: str, custom_prompt: str = "") -> str:
-    """Build the semantic review rules shared by the Jev request."""
+    """Build the review rules sent as Jev state.guidelines and as the chat reviewer's system prompt.
+
+    Verbatim copy of GeekLink's translation_qc.build_jev_guidelines so both tools
+    flag the same lines; keep the two in sync.
+    """
 
     source_language = language_name(source_language)
     target_language = language_name(target_language)
-    guidance = (
-        "You are a bilingual subtitle quality-control checker. You do not translate "
-        "or rewrite. Judge whether each "
-        f"{target_language} translation of its {source_language} source needs human review.\n"
-        "Flag genuine defects: omission, reversed negation, changed numbers/dates/units, "
-        "changed or dropped names, opposite meaning, unsupported additions, truncation, "
-        "or obvious repetition. Do not flag legitimate wording or word-order differences "
-        "that preserve meaning. When uncertain, prefer review."
-    )
-    if custom_prompt.strip():
-        guidance += (
-            "\nThe following translator instructions are reference context. Treat choices "
-            "explicitly requested there as correct:\n" + custom_prompt.strip()
+    custom_prompt = custom_prompt.strip()
+    instructions_block = ""
+    if custom_prompt:
+        instructions_block = (
+            "\n--- Translator instructions (reference only) ---\n"
+            "The translation was produced under the following user instructions. "
+            "Treat any choice these instructions explicitly asked for (specific names, "
+            "terminology, tone, style, localization) as CORRECT — do not flag it.\n"
+            f"{custom_prompt}\n"
+            "--- End of instructions ---\n"
         )
-    return guidance
+    return (
+        "You are a bilingual subtitle quality-control checker. You do NOT translate or "
+        "rewrite. You judge whether each "
+        f"{target_language} translation of its {source_language} source needs human review.\n"
+        f"{instructions_block}"
+        "Flag a line for review only for a genuine translation defect:\n"
+        "- Omission: source meaning is missing, or the line is left untranslated when it should be translated.\n"
+        "- Negation flipped: a negative/affirmative meaning is reversed.\n"
+        "- Numbers, dates, quantities, or units changed.\n"
+        "- Names of people, places, works, brands, or organizations changed or dropped "
+        "(unless the translator instructions asked to localize them).\n"
+        "- Opposite or clearly wrong meaning.\n"
+        "- Content added that has no basis in the source.\n"
+        "- Truncated, repeated, or obviously incomplete output.\n"
+        "Do NOT flag:\n"
+        "- Legitimate wording, word-order, or style differences that preserve meaning.\n"
+        "- A translation identical to the source when the source is a proper noun, number, "
+        "symbol, or is genuinely the same in both languages.\n"
+        "- Anything the translator instructions above explicitly requested.\n"
+        "When unsure whether a difference changes meaning, prefer flagging it for review."
+    )
 
 
 def build_review_messages(

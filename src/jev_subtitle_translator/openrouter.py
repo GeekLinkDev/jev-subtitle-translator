@@ -161,15 +161,23 @@ class OpenRouterClient:
                     "translation": str(pair.get("translation", "")),
                 }
             )
+            # Question wording mirrors GeekLink's worker (callJevDecisions); keep in sync.
             questions[subtitle_id] = {
                 "type": "noul",
                 "instructions": (
-                    f'Judge ONLY the subtitle whose id is "{subtitle_id}". '
-                    "Does this translation need human review?"
+                    f'Judge ONLY the item in state.subtitles whose id is "{subtitle_id}". '
+                    "Following state.guidelines, does that translation need human review?"
                 ),
                 "criteria": {
-                    "true": "There is a genuine meaning, omission, number, entity, or fluency defect.",
-                    "false": "The translation preserves the source meaning.",
+                    "true": (
+                        "The translation has a genuine defect: omission, flipped negation, "
+                        "changed numbers/dates/units, changed names, opposite meaning, "
+                        "unsupported additions, or truncation/repetition."
+                    ),
+                    "false": (
+                        "The translation preserves the source meaning; wording or style "
+                        "differences are acceptable."
+                    ),
                 },
             }
 

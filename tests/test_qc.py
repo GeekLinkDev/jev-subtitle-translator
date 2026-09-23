@@ -179,3 +179,14 @@ def test_empty_qc_model_skips_semantic_review_but_keeps_deterministic_flags():
     assert report["jev_model"] is None
     assert finalize_qc_status(deterministic_check(source[:1], {"0": "a"})[0], "skipped") == "skipped"
 
+
+def test_review_guidelines_match_geeklink_rules():
+    from jev_subtitle_translator.qc import build_jev_guidelines
+
+    text = build_jev_guidelines("en", "zh-CN", "Keep 'Grok' untranslated.")
+
+    assert "Chinese translation of its English source" in text
+    assert "identical to the source when the source is a proper noun" in text
+    assert "Treat any choice these instructions explicitly asked for" in text
+    assert "Keep 'Grok' untranslated." in text
+    assert "fluency" not in text
