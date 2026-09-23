@@ -1,5 +1,6 @@
 """Minimal, loss-aware SRT parsing and rendering for the first release."""
 
+import re
 from pathlib import Path
 
 from .models import Cue
@@ -12,8 +13,11 @@ class SRTError(ValueError):
 def parse_srt(text: str) -> list[Cue]:
     """Parse an SRT document without changing cue text or timing."""
 
-    normalized = text.replace("\r\n", "\n").replace("\r", "\n").lstrip("\ufeff")
-    blocks = [block for block in normalized.split("\n\n") if block.strip()]
+    normalized = text.replace("\r\n", "\n").replace("\r", "\n").lstrip("\ufeff").rstrip()
+    # Split on any run of blank lines: a cue with empty text is rendered as
+    # "N\ntiming\n\n\n", and an exact "\n\n" split would glue the extra newline
+    # onto the next cue and hide its number line.
+    blocks = [block for block in re.split(r"\n[ \t]*(?:\n[ \t]*)+", normalized) if block.strip()]
     cues: list[Cue] = []
 
     for index, block in enumerate(blocks):
