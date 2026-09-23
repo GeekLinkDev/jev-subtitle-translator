@@ -336,6 +336,11 @@
             color: #dcdcaa;
         }
 
+        .qc-status.skipped {
+            background: rgba(133, 133, 133, 0.2);
+            color: #cccccc;
+        }
+
         .qc-status.failed {
             background: rgba(244, 135, 113, 0.2);
             color: #f48771;
@@ -419,11 +424,6 @@
                     <input type="file" id="videoFile" accept="video/*,.mp4,.mkv,.webm,.mov,.avi" onchange="handleVideoUpload()" />
                 </div>
 
-                <div class="form-group">
-                    <label>OpenRouter API Key</label>
-                    <input type="password" id="apiKey" placeholder="Enter your OpenRouter API key" />
-                </div>
-
                 <div class="form-row">
                     <div class="form-group">
                         <label>Source Language</label>
@@ -435,9 +435,48 @@
                     </div>
                 </div>
 
-                <div class="form-group" id="translationModelGroup">
-                    <label>Translation Model (cost relative to DeepSeek V3 = 1x)</label>
-                    <select id="model">
+                <div id="translationModelGroup">
+                    <div class="form-group">
+                        <label>Translation Provider</label>
+                        <select id="translationProvider" onchange="updateProviderFields()">
+                            <option value="openrouter">OpenRouter</option>
+                            <option value="local">Local / OpenAI-compatible</option>
+                        </select>
+                    </div>
+                    <div class="form-group" id="openrouterModelGroup">
+                        <label>Translation Model (cost relative to DeepSeek V3 = 1x)</label>
+                        <select id="model">
+                        <option value="deepseek/deepseek-v4-flash-0731">DeepSeek (V4 Flash) — ≈0.2x</option>
+                        <option value="openai/gpt-4o-mini">ChatGPT (GPT-4o Mini) — ≈0.5x</option>
+                        <option value="openai/gpt-5.6-luna" selected>ChatGPT (GPT-5.6 Luna) — ≈0.5x</option>
+                        <option value="deepseek/deepseek-v4-pro">DeepSeek (V4 Pro) — ≈1.4x</option>
+                        <option value="x-ai/grok-4.20">Grok (4.20) — ≈2.7x</option>
+                        <option value="anthropic/claude-haiku-4.5">Claude (Haiku 4.5) — ≈4.4x</option>
+                        <option value="openai/gpt-5.6-terra">ChatGPT (GPT-5.6 Terra) — ≈5.1x</option>
+                        <option value="google/gemini-3.6-flash">Gemini (3.6 Flash) — ≈6.6x</option>
+                        <option value="anthropic/claude-sonnet-5">Claude (Sonnet 5) — ≈8.8x</option>
+                        <option value="openai/gpt-4o">ChatGPT (GPT-4o) — ≈9.1x</option>
+                        <option value="anthropic/claude-sonnet-4.6">Claude (Sonnet 4.6) — ≈13.1x</option>
+                    </select>
+                    </div>
+                    <div class="form-group" id="localModelGroup" style="display: none;">
+                        <label>Translation Model</label>
+                        <input type="text" id="localModel" placeholder="e.g. qwen2.5:14b" />
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label>QC Model</label>
+                    <select id="qcMode" onchange="updateProviderFields()">
+                        <option value="jev">Jev 1.13 (OpenRouter)</option>
+                        <option value="openrouter">Other OpenRouter model</option>
+                        <option value="local">Local / OpenAI-compatible model</option>
+                        <option value="off">Off (deterministic checks only)</option>
+                    </select>
+                </div>
+                <div class="form-group" id="qcOpenrouterModelGroup" style="display: none;">
+                    <label>QC OpenRouter Model</label>
+                    <select id="qcOpenrouterModel">
                         <option value="deepseek/deepseek-v4-flash-0731">DeepSeek (V4 Flash) — ≈0.2x</option>
                         <option value="openai/gpt-4o-mini">ChatGPT (GPT-4o Mini) — ≈0.5x</option>
                         <option value="openai/gpt-5.6-luna" selected>ChatGPT (GPT-5.6 Luna) — ≈0.5x</option>
@@ -451,12 +490,26 @@
                         <option value="anthropic/claude-sonnet-4.6">Claude (Sonnet 4.6) — ≈13.1x</option>
                     </select>
                 </div>
+                <div class="form-group" id="qcLocalModelGroup" style="display: none;">
+                    <label>QC Local Model</label>
+                    <input type="text" id="qcLocalModel" placeholder="e.g. qwen2.5:14b" />
+                </div>
 
-                <div class="form-group">
-                    <label>Jev QC Model</label>
-                    <select id="jevModel">
-                        <option value="typesafe/jev-1.13">Jev 1.13</option>
-                    </select>
+                <div class="form-group" id="openrouterKeyGroup">
+                    <label>OpenRouter API Key</label>
+                    <input type="password" id="apiKey" placeholder="Enter your OpenRouter API key" />
+                </div>
+
+                <div id="localEndpointGroup" style="display: none;">
+                    <div class="form-group">
+                        <label>Local Base URL</label>
+                        <input type="text" id="localBaseUrl" value="http://localhost:11434/v1"
+                               placeholder="Ollama :11434/v1 · LM Studio :1234/v1 · vLLM :8000/v1" />
+                    </div>
+                    <div class="form-group">
+                        <label>Local API Key (optional)</label>
+                        <input type="password" id="localApiKey" placeholder="Leave empty if the server needs none" />
+                    </div>
                 </div>
 
                 <div class="form-group">
@@ -645,6 +698,36 @@
             if (file) session.set('translationSrt', file);
         }
 
+        const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1';
+        const JEV_MODEL = 'typesafe/jev-1.13';
+
+        function show(id, visible) {
+            document.getElementById(id).style.display = visible ? 'block' : 'none';
+        }
+
+        function updateProviderFields() {
+            const translating = document.getElementById('workflowMode').value === 'translate';
+            const translationLocal = document.getElementById('translationProvider').value === 'local';
+            const qcMode = document.getElementById('qcMode').value;
+            show('openrouterModelGroup', !translationLocal);
+            show('localModelGroup', translationLocal);
+            show('qcOpenrouterModelGroup', qcMode === 'openrouter');
+            show('qcLocalModelGroup', qcMode === 'local');
+            show('openrouterKeyGroup', (translating && !translationLocal) || qcMode === 'jev' || qcMode === 'openrouter');
+            show('localEndpointGroup', (translating && translationLocal) || qcMode === 'local');
+        }
+
+        // Returns {model, baseUrl} for the QC step; model '' means semantic QC is off.
+        function qcSettings() {
+            const localBaseUrl = document.getElementById('localBaseUrl').value.trim();
+            switch (document.getElementById('qcMode').value) {
+                case 'jev': return { model: JEV_MODEL, baseUrl: OPENROUTER_BASE_URL };
+                case 'openrouter': return { model: document.getElementById('qcOpenrouterModel').value, baseUrl: OPENROUTER_BASE_URL };
+                case 'local': return { model: document.getElementById('qcLocalModel').value.trim(), baseUrl: localBaseUrl };
+                default: return { model: 'off', baseUrl: OPENROUTER_BASE_URL };
+            }
+        }
+
         function handleWorkflowModeChange() {
             const isQc = document.getElementById('workflowMode').value === 'qc';
             document.getElementById('translationFileGroup').style.display = isQc ? 'block' : 'none';
@@ -656,6 +739,7 @@
             if (!currentData) {
                 document.getElementById('exportSrtBtn').style.display = isQc ? 'none' : 'block';
             }
+            updateProviderFields();
         }
 
         function handleVideoUpload() {
@@ -709,29 +793,47 @@
             }
 
             const apiKey = document.getElementById('apiKey').value.trim();
-            if (!apiKey) {
-                showStatus('Please enter your API key', 'error');
+            const localBaseUrl = document.getElementById('localBaseUrl').value.trim();
+            const translationLocal = document.getElementById('translationProvider').value === 'local';
+            const translationModel = translationLocal
+                ? document.getElementById('localModel').value.trim()
+                : document.getElementById('model').value;
+            const qc = qcSettings();
+            const translating = workflowMode === 'translate';
+
+            if (translating && !translationModel) {
+                showStatus('Please enter the local translation model name', 'error');
+                return;
+            }
+            if (document.getElementById('qcMode').value === 'local' && !qc.model) {
+                showStatus('Please enter the local QC model name', 'error');
+                return;
+            }
+            if (document.getElementById('openrouterKeyGroup').style.display !== 'none' && !apiKey) {
+                showStatus('Please enter your OpenRouter API key', 'error');
+                return;
+            }
+            if (document.getElementById('localEndpointGroup').style.display !== 'none' && !localBaseUrl) {
+                showStatus('Please enter the local base URL', 'error');
                 return;
             }
 
-            const sourceLanguage = document.getElementById('sourceLanguage').value;
-            const targetLanguage = document.getElementById('targetLanguage').value;
-            const jevModel = document.getElementById('jevModel').value;
-            const prompt = document.getElementById('prompt').value;
-
             const formData = new FormData();
-            if (workflowMode === 'qc') {
+            if (translating) {
+                formData.append('file', srtFile);
+                formData.append('model', translationModel);
+                formData.append('base_url', translationLocal ? localBaseUrl : OPENROUTER_BASE_URL);
+            } else {
                 formData.append('source_file', srtFile);
                 formData.append('translation_file', translationFile);
-            } else {
-                formData.append('file', srtFile);
-                formData.append('model', document.getElementById('model').value);
             }
-            formData.append('source_language', sourceLanguage);
-            formData.append('target_language', targetLanguage);
-            formData.append('jev_model', jevModel);
-            formData.append('prompt', prompt);
+            formData.append('source_language', document.getElementById('sourceLanguage').value);
+            formData.append('target_language', document.getElementById('targetLanguage').value);
+            formData.append('jev_model', qc.model);
+            formData.append('qc_base_url', qc.baseUrl);
+            formData.append('prompt', document.getElementById('prompt').value);
             formData.append('api_key', apiKey);
+            formData.append('local_api_key', document.getElementById('localApiKey').value.trim());
 
             showStatus('Starting...', 'processing');
             document.getElementById('runBtn').disabled = true;
@@ -820,7 +922,7 @@
             document.getElementById('translationModel').textContent = report.translation_model === 'external'
                 ? 'Existing translated SRT'
                 : report.translation_model;
-            document.getElementById('qcModel').textContent = report.jev_model;
+            document.getElementById('qcModel').textContent = report.jev_model || 'Off (deterministic checks only)';
 
             const qcStatusEl = document.getElementById('qcStatus');
             qcStatusEl.textContent = `QC Status: ${report.qc_status.toUpperCase()}`;
@@ -932,36 +1034,40 @@
             return div.innerHTML;
         }
 
+        const SAVED_SELECTS = [
+            'workflowMode', 'sourceLanguage', 'targetLanguage', 'translationProvider',
+            'model', 'qcMode', 'qcOpenrouterModel',
+        ];
+        const SAVED_INPUTS = ['prompt', 'localModel', 'qcLocalModel', 'localBaseUrl'];
+
         // Load saved preferences from localStorage
         function loadPreferences() {
             const saved = localStorage.getItem('jevTranslatorPrefs');
             if (saved) {
                 const prefs = JSON.parse(saved);
-                for (const id of ['workflowMode', 'sourceLanguage', 'targetLanguage', 'model', 'jevModel']) {
+                for (const id of SAVED_SELECTS) {
                     const select = document.getElementById(id);
                     if (prefs[id] && [...select.options].some(o => o.value === prefs[id])) {
                         select.value = prefs[id];
                     }
                 }
-                if (prefs.prompt) document.getElementById('prompt').value = prefs.prompt;
+                for (const id of SAVED_INPUTS) {
+                    if (prefs[id]) document.getElementById(id).value = prefs[id];
+                }
             }
         }
 
         // Save preferences to localStorage
         function savePreferences() {
-            const prefs = {
-                workflowMode: document.getElementById('workflowMode').value,
-                sourceLanguage: document.getElementById('sourceLanguage').value,
-                targetLanguage: document.getElementById('targetLanguage').value,
-                jevModel: document.getElementById('jevModel').value,
-                prompt: document.getElementById('prompt').value,
-                model: document.getElementById('model').value,
-            };
+            const prefs = {};
+            for (const id of [...SAVED_SELECTS, ...SAVED_INPUTS]) {
+                prefs[id] = document.getElementById(id).value;
+            }
             localStorage.setItem('jevTranslatorPrefs', JSON.stringify(prefs));
         }
 
-        // Save preferences when user changes them
-        ['workflowMode', 'sourceLanguage', 'targetLanguage', 'model', 'jevModel', 'prompt'].forEach(id => {
+        // Save preferences when user changes them (API keys are deliberately not saved)
+        [...SAVED_SELECTS, ...SAVED_INPUTS].forEach(id => {
             const el = document.getElementById(id);
             if (el) {
                 el.addEventListener('change', savePreferences);

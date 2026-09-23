@@ -1,6 +1,7 @@
-"""Deterministic and Jev-powered subtitle translation quality checks."""
+"""Deterministic and model-powered subtitle translation quality checks."""
 
 import hashlib
+import json
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any
@@ -17,6 +18,47 @@ QC_COMPLETED = "completed"
 QC_COMPLETED_WITH_FLAGS = "completed_with_flags"
 QC_PARTIAL = "partial"
 QC_FAILED = "failed"
+QC_SKIPPED = "skipped"
+
+QC_METHOD_DECISIONS = "jev_decisions"
+QC_METHOD_CHAT = "chat"
+QC_METHOD_OFF = "off"
+
+REVIEW_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "items": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string"},
+                    "needs_review": {"type": "boolean"},
+                },
+                "required": ["id", "needs_review"],
+                "additionalProperties": False,
+            },
+        }
+    },
+    "required": ["items"],
+    "additionalProperties": False,
+}
+
+
+def normalize_qc_model(model: str | None) -> str:
+    """Return the QC model ID, or '' when semantic QC is turned off ('', 'none', 'off')."""
+
+    model = (model or "").strip()
+    return "" if model.lower() in {"", "none", "off"} else model
+
+
+def qc_method(model: str | None) -> str:
+    """Jev models use OpenRouter's Decisions endpoint; any other model reviews via chat."""
+
+    model = normalize_qc_model(model)
+    if not model:
+        return QC_METHOD_OFF
+    return QC_METHOD_DECISIONS if model.startswith("typesafe/jev") else QC_METHOD_CHAT
 
 
 def pair_existing_translation(
@@ -98,8 +140,54 @@ def build_jev_guidelines(source_language: str, target_language: str, custom_prom
     return guidance
 
 
+def build_review_messages(
+    pairs: list[dict[str, str]],
+    source_language: str,
+    target_language: str,
+    custom_prompt: str = "",
+) -> list[dict[str, str]]:
+    """Build the chat prompt used when the QC model is not a Jev Decisions model.
+
+    Mirrors GeekLink's chat fallback so both tools ask non-Jev reviewers the
+    same question with the same output shape.
+    """
+
+    system = (
+        build_jev_guidelines(source_language, target_language, custom_prompt)
+        + "\nFor each input item, set needs_review to true or false. "
+        "Return ONLY one valid JSON object with this exact schema, nothing else: "
+        '{"items":[{"id":"same id","needs_review":true}]}. '
+        "Keep every id unchanged, one output item per input item, no extra keys, "
+        "no explanations, no markdown."
+    )
+    payload = {"items": [{"id": p["id"], "source": p["source"], "translation": p["translation"]} for p in pairs]}
+    user = (
+        f"Check these {language_name(source_language)}->{language_name(target_language)} "
+        "subtitle pairs. Return JSON only.\n"
+        + json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+    )
+    return [{"role": "system", "content": system}, {"role": "user", "content": user}]
+
+
+def parse_review_response(response: dict[str, Any], expected_ids: set[str]) -> dict[str, bool]:
+    """Keep only boolean verdicts for expected, non-duplicate IDs."""
+
+    items = response.get("items")
+    if not isinstance(items, list):
+        raise TypeError("review_items_not_list")
+    verdicts: dict[str, bool] = {}
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        subtitle_id = str(item.get("id", "")).strip()
+        value = item.get("needs_review")
+        if subtitle_id in expected_ids and subtitle_id not in verdicts and isinstance(value, bool):
+            verdicts[subtitle_id] = value
+    return verdicts
+
+
 def run_jev_qc(
-    client: OpenRouterClient,
+    client: OpenRouterClient | None,
     records: dict[str, dict[str, Any]],
     *,
     source_language: str,
@@ -110,11 +198,21 @@ def run_jev_qc(
     workers: int = 3,
     on_progress: Callable[[int, int], None] | None = None,
 ) -> tuple[str, list[str]]:
-    """Run Jev over every structurally valid non-empty translation pair.
+    """Review every structurally valid non-empty translation pair.
+
+    ``typesafe/jev-*`` models use OpenRouter's Decisions endpoint; any other
+    model (hosted or local) is asked through chat completions. An empty model
+    skips semantic review and keeps only the deterministic checks.
 
     Batches run concurrently; ``on_progress(done, total)`` is called as each
     one finishes, with ``done`` counting pairs so it stays monotonic.
     """
+
+    model = normalize_qc_model(model)
+    method = qc_method(model)
+    if method == QC_METHOD_OFF:
+        return QC_SKIPPED, []
+    review_tag = "jev_review" if method == QC_METHOD_DECISIONS else "model_review"
 
     pairs = [
         {
@@ -138,15 +236,25 @@ def run_jev_qc(
     batch_size = max(1, batch_size)
     batches = [pairs[start : start + batch_size] for start in range(0, len(pairs), batch_size)]
 
+    def ask(batch: list[dict[str, str]]) -> dict[str, bool]:
+        if method == QC_METHOD_DECISIONS:
+            return client.decisions(model=model, pairs=batch, guidelines=guidelines)
+        response = client.chat_json(
+            model=model,
+            messages=build_review_messages(batch, source_language, target_language, custom_prompt),
+            schema_name="subtitle_review",
+            schema=REVIEW_SCHEMA,
+        )
+        return parse_review_response(response, {pair["id"] for pair in batch})
+
     def review_batch(batch: list[dict[str, str]]) -> tuple[dict[str, bool] | None, str]:
         last_error = ""
         for _ in range(2):
             try:
-                verdicts = client.decisions(model=model, pairs=batch, guidelines=guidelines)
-                return verdicts, ""
-            except OpenRouterError as exc:
+                return ask(batch), ""
+            except (OpenRouterError, TypeError) as exc:
                 last_error = str(exc)
-                if exc.status in {400, 401, 403}:
+                if isinstance(exc, OpenRouterError) and exc.status in {400, 401, 403}:
                     break
         return None, last_error
 
@@ -158,18 +266,18 @@ def run_jev_qc(
             verdicts, last_error = future.result()
 
             if verdicts is None:
-                failures.append(last_error or "jev_request_failed")
+                failures.append(last_error or "qc_request_failed")
             else:
                 checked += len(verdicts)
                 for subtitle_id, needs_review in verdicts.items():
                     if needs_review and subtitle_id in records:
                         records[subtitle_id]["translation_status"] = STATUS_NEEDS_REVIEW
                         records[subtitle_id]["needs_review"] = True
-                        records[subtitle_id].setdefault("issues", []).append("jev_review")
+                        records[subtitle_id].setdefault("issues", []).append(review_tag)
 
                 missing = [pair["id"] for pair in batch if pair["id"] not in verdicts]
                 if missing:
-                    failures.append(f"jev_missing_verdicts:{','.join(missing)}")
+                    failures.append(f"qc_missing_verdicts:{','.join(missing)}")
 
             done += len(batch)
             if on_progress is not None:
@@ -185,14 +293,16 @@ def run_jev_qc(
 def finalize_qc_status(records: dict[str, dict[str, Any]], status: str) -> str:
     """Promote a successful run when deterministic checks found flagged lines."""
 
-    if status != QC_COMPLETED:
+    if status not in {QC_COMPLETED, QC_SKIPPED}:
         return status
     has_flags = any(
         key != "_run" and record.get("translation_status") != STATUS_COMPLETED
         for key, record in records.items()
     )
     structural_issues = bool((records.get("_run") or {}).get("structural_issues"))
-    return QC_COMPLETED_WITH_FLAGS if has_flags or structural_issues else QC_COMPLETED
+    if has_flags or structural_issues:
+        return QC_COMPLETED_WITH_FLAGS
+    return status
 
 
 def build_report(
@@ -203,7 +313,7 @@ def build_report(
     qc_status: str,
     qc_errors: list[str],
     translation_model: str,
-    jev_model: str,
+    jev_model: str | None,
     translation_failures: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     """Build a portable JSON report without writing any telemetry."""
@@ -220,7 +330,8 @@ def build_report(
         "translated_count": sum(bool(value.strip()) for value in translations.values()),
         "flagged_count": len(flagged),
         "translation_model": translation_model,
-        "jev_model": jev_model,
+        "jev_model": normalize_qc_model(jev_model) or None,
+        "qc_method": qc_method(jev_model),
         "translation_failures": translation_failures or {},
         "qc_errors": qc_errors,
         "lines": line_records,

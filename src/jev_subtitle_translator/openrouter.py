@@ -1,4 +1,4 @@
-"""Small dependency-free OpenRouter client used by the CLI."""
+"""Small dependency-free client for OpenRouter and OpenAI-compatible endpoints."""
 
 import json
 import time
@@ -6,10 +6,20 @@ import urllib.error
 import urllib.request
 from collections.abc import Mapping
 from typing import Any
+from urllib.parse import urlsplit
+
+OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
+LOCAL_BASE_URL = "http://localhost:11434/v1"
+
+
+def is_openrouter_url(base_url: str) -> bool:
+    """Return True when an API root points at OpenRouter."""
+
+    return urlsplit((base_url or OPENROUTER_BASE_URL).strip()).hostname == "openrouter.ai"
 
 
 class OpenRouterError(RuntimeError):
-    """Raised when OpenRouter cannot provide a valid response."""
+    """Raised when the model endpoint cannot provide a valid response."""
 
     def __init__(self, message: str, *, status: int | None = None) -> None:
         super().__init__(message)
@@ -56,20 +66,32 @@ NO_TEMPERATURE_MODELS = frozenset(
 
 
 class OpenRouterClient:
-    """Call OpenRouter chat completions and the Jev Decisions endpoint."""
+    """Call chat completions on OpenRouter or any OpenAI-compatible server.
+
+    ``base_url`` is the OpenAI-style API root (``.../v1``). OpenRouter-only
+    features — the Jev Decisions endpoint, provider routing, and reasoning
+    controls — are used only when the host is openrouter.ai, because local
+    servers such as Ollama, LM Studio, or vLLM may reject unknown fields.
+    """
 
     def __init__(
         self,
-        api_key: str,
+        api_key: str = "",
         *,
-        base_url: str = "https://openrouter.ai",
+        base_url: str = OPENROUTER_BASE_URL,
         timeout: float = 120.0,
         attempts: int = 3,
     ) -> None:
-        if not api_key.strip():
-            raise ValueError("OPENROUTER_API_KEY is required")
+        self.base_url = (base_url or OPENROUTER_BASE_URL).strip().rstrip("/")
+        parts = urlsplit(self.base_url)
+        if parts.scheme not in {"http", "https"} or not parts.netloc:
+            raise ValueError(f"invalid base URL: {base_url!r}")
+        self.is_openrouter = is_openrouter_url(self.base_url)
         self.api_key = api_key.strip()
-        self.base_url = base_url.rstrip("/")
+        if self.is_openrouter and not self.api_key:
+            raise ValueError("OPENROUTER_API_KEY is required")
+        self._origin = f"{parts.scheme}://{parts.netloc}"
+        self.label = "OpenRouter" if self.is_openrouter else self._origin
         self.timeout = timeout
         self.attempts = max(1, attempts)
 
@@ -97,14 +119,15 @@ class OpenRouterClient:
                     "schema": schema or TRANSLATION_SCHEMA,
                 },
             },
-            # Keep OpenRouter from routing to an endpoint that ignores response_format.
-            "provider": {"require_parameters": True},
         }
         if model not in NO_TEMPERATURE_MODELS:
             body["temperature"] = temperature
-        if model in REASONING_BY_MODEL:
-            body["reasoning"] = REASONING_BY_MODEL[model]
-        payload = self._request_json("/api/v1/chat/completions", body)
+        if self.is_openrouter:
+            # Keep OpenRouter from routing to an endpoint that ignores response_format.
+            body["provider"] = {"require_parameters": True}
+            if model in REASONING_BY_MODEL:
+                body["reasoning"] = REASONING_BY_MODEL[model]
+        payload = self._request_json(f"{self.base_url}/chat/completions", body)
         choices = payload.get("choices")
         if not isinstance(choices, list) or not choices:
             raise OpenRouterError("chat response contains no choices")
@@ -112,14 +135,7 @@ class OpenRouterClient:
         refusal = message.get("refusal")
         if refusal:
             raise OpenRouterError(f"model refusal: {refusal}")
-        content = _message_content(message.get("content"))
-        try:
-            result = json.loads(content)
-        except json.JSONDecodeError as exc:
-            raise OpenRouterError("chat response is not valid JSON") from exc
-        if not isinstance(result, dict):
-            raise OpenRouterError("chat response JSON root is not an object")
-        return result
+        return _parse_json_object(_message_content(message.get("content")))
 
     def decisions(
         self,
@@ -130,6 +146,8 @@ class OpenRouterClient:
     ) -> dict[str, bool]:
         """Ask a Jev Decisions model for one review verdict per subtitle ID."""
 
+        if not self.is_openrouter:
+            raise OpenRouterError("the Jev Decisions endpoint is only available on OpenRouter")
         subtitles = []
         questions: dict[str, Any] = {}
         for pair in pairs:
@@ -159,7 +177,7 @@ class OpenRouterClient:
             return {}
 
         payload = self._request_json(
-            "/api/alpha/decisions",
+            f"{self._origin}/api/alpha/decisions",
             {
                 "model": model,
                 "state": {"guidelines": guidelines, "subtitles": subtitles},
@@ -175,17 +193,22 @@ class OpenRouterClient:
             if subtitle_id in answers
         }
 
-    def _request_json(self, path: str, body: dict[str, Any]) -> dict[str, Any]:
+    def _request_json(self, url: str, body: dict[str, Any]) -> dict[str, Any]:
+        headers = {"Content-Type": "application/json"}
+        if self.api_key:
+            headers["Authorization"] = f"Bearer {self.api_key}"
+        if self.is_openrouter:
+            headers.update(
+                {
+                    "HTTP-Referer": "https://github.com/GeekLinkDev/jev-subtitle-translator",
+                    "X-Title": "GeekLink Jev Subtitle Translator",
+                    "X-OpenRouter-Metadata": "enabled",
+                }
+            )
         request = urllib.request.Request(
-            f"{self.base_url}{path}",
+            url,
             data=json.dumps(body, ensure_ascii=False).encode("utf-8"),
-            headers={
-                "Authorization": f"Bearer {self.api_key}",
-                "Content-Type": "application/json",
-                "HTTP-Referer": "https://github.com/GeekLinkDev/jev-subtitle-translator",
-                "X-Title": "GeekLink Jev Subtitle Translator",
-                "X-OpenRouter-Metadata": "enabled",
-            },
+            headers=headers,
             method="POST",
         )
 
@@ -202,14 +225,14 @@ class OpenRouterClient:
                 retryable = exc.code == 429 or exc.code >= 500
                 if not retryable or attempt == self.attempts - 1:
                     raise OpenRouterError(
-                        f"OpenRouter HTTP {exc.code}: {detail}", status=exc.code
+                        f"{self.label} HTTP {exc.code}: {detail}", status=exc.code
                     ) from exc
             except (urllib.error.URLError, TimeoutError, OSError, json.JSONDecodeError) as exc:
                 if attempt == self.attempts - 1:
-                    raise OpenRouterError(f"OpenRouter request failed: {exc}") from exc
+                    raise OpenRouterError(f"{self.label} request failed: {exc}") from exc
             time.sleep(2**attempt)
 
-        raise OpenRouterError("OpenRouter request failed after retries")
+        raise OpenRouterError(f"{self.label} request failed after retries")
 
 
 def _message_content(content: Any) -> str:
@@ -222,6 +245,28 @@ def _message_content(content: Any) -> str:
                 parts.append(item["text"])
         return "".join(parts).strip()
     raise OpenRouterError("chat response content is missing")
+
+
+def _parse_json_object(content: str) -> dict[str, Any]:
+    """Parse the model's JSON object, tolerating code fences or surrounding prose.
+
+    Hosted models honour strict JSON Schema, but many local models wrap the
+    object in markdown or add a sentence before it.
+    """
+
+    try:
+        result = json.loads(content)
+    except json.JSONDecodeError:
+        start, end = content.find("{"), content.rfind("}")
+        if start < 0 or end <= start:
+            raise OpenRouterError("chat response is not valid JSON") from None
+        try:
+            result = json.loads(content[start : end + 1])
+        except json.JSONDecodeError as exc:
+            raise OpenRouterError("chat response is not valid JSON") from exc
+    if not isinstance(result, dict):
+        raise OpenRouterError("chat response JSON root is not an object")
+    return result
 
 
 def _coerce_boolean(value: Any) -> bool:

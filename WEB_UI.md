@@ -22,7 +22,9 @@ Then open <http://127.0.0.1:8000>.
 
 1. Choose an SRT file. Optionally choose a video file; it is previewed in the
    browser and never uploaded.
-2. Enter your OpenRouter API key.
+2. Choose the translation provider (OpenRouter or a local OpenAI-compatible
+   server) and the QC model (Jev, another OpenRouter model, a local model, or
+   off). The OpenRouter key and local base URL fields appear only when needed.
 3. Pick source/target languages and a translation model. The dropdown shows an
    approximate cost multiplier relative to DeepSeek V3 (input/output tokens
    weighted equally, OpenRouter list price).

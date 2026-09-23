@@ -82,7 +82,8 @@ A Jev flag is a suggestion to inspect a subtitle, not proof that it is wrong. Je
 - **Subtitle format:** SRT input and translated SRT output.
 - **Translation models:** OpenRouter models that support strict JSON Schema output, including available GPT, Claude, Gemini, DeepSeek, and Grok models.
 - **Languages:** Any source and target language pair supported by the selected translation model.
-- **Quality-control model:** `typesafe/jev-1.13` by default.
+- **Quality-control model:** `typesafe/jev-1.13` by default, or any other OpenRouter or local model. QC can also be turned off to keep only the deterministic checks.
+- **Local models:** Any OpenAI-compatible server, such as Ollama, LM Studio, vLLM, or llama.cpp.
 - **Reports:** A translated SRT plus a JSON report containing line-level translation and review status.
 
 ## Command line
@@ -108,6 +109,28 @@ export OPENROUTER_API_KEY="your-api-key"
 ```
 
 The translation command writes `translated.srt` and `translated.srt.qc.json`. Use `--prompt` for additional translation guidance, `--batch-size` and `--workers` to tune requests, or either command's `--help` for all options.
+
+## Local and OpenAI-compatible models
+
+Translation and QC can each point at any server that exposes an OpenAI-compatible `/v1/chat/completions` endpoint. In the web interface, choose **Local / OpenAI-compatible** and enter the base URL, for example `http://localhost:11434/v1` for Ollama, `http://localhost:1234/v1` for LM Studio, or `http://localhost:8000/v1` for vLLM.
+
+```bash
+# Translate locally, review with Jev on OpenRouter
+export OPENROUTER_API_KEY="your-api-key"
+.venv/bin/jev-subtitle-translator translate input.srt \
+  --source-language en --target-language de \
+  --model qwen2.5:14b --base-url http://localhost:11434/v1 --output translated.srt
+
+# Fully local: translate and review with local models, no OpenRouter key needed
+.venv/bin/jev-subtitle-translator translate input.srt \
+  --source-language en --target-language de \
+  --model qwen2.5:14b --base-url http://localhost:11434/v1 \
+  --qc-model qwen2.5:14b --qc-base-url http://localhost:11434/v1 --output translated.srt
+```
+
+`OPENROUTER_API_KEY` is only needed for endpoints on openrouter.ai; set `LOCAL_API_KEY` if your local server requires a key. Jev models (`typesafe/jev-*`) use OpenRouter's Decisions endpoint and therefore require OpenRouter. Any other QC model receives the same review guidelines through chat and returns a `needs_review` verdict per line. Use `--qc-model none` to skip semantic QC.
+
+The translator requests JSON Schema structured output. Most current local servers support it; if a model still wraps its JSON in text or markdown, the object is extracted automatically. Small local models may miss IDs more often, and those lines are retried and then flagged like any other failure.
 
 ## Frequently asked questions
 

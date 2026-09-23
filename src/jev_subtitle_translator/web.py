@@ -11,11 +11,17 @@ from typing import Annotated, Any
 from fastapi import FastAPI, File, Form, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 
-from .openrouter import OpenRouterClient, OpenRouterError
+from .openrouter import (
+    OPENROUTER_BASE_URL,
+    OpenRouterClient,
+    OpenRouterError,
+    is_openrouter_url,
+)
 from .qc import (
     build_report,
     deterministic_check,
     finalize_qc_status,
+    normalize_qc_model,
     pair_existing_translation,
     run_jev_qc,
 )
@@ -24,6 +30,14 @@ from .translator import translate_cues
 
 STATIC_DIR = Path(__file__).parent / "static"
 log = logging.getLogger("uvicorn.error")
+
+
+def _make_client(base_url: str, openrouter_key: str, local_key: str) -> OpenRouterClient:
+    """Pick the key that belongs to the endpoint so a local server never sees the OpenRouter key."""
+
+    base_url = base_url.strip() or OPENROUTER_BASE_URL
+    key = openrouter_key if is_openrouter_url(base_url) else local_key
+    return OpenRouterClient(key, base_url=base_url)
 
 
 def create_app() -> FastAPI:
@@ -41,14 +55,21 @@ def create_app() -> FastAPI:
         source_language: Annotated[str, Form()],
         target_language: Annotated[str, Form()],
         model: Annotated[str, Form()],
-        api_key: Annotated[str, Form()],
+        api_key: Annotated[str, Form()] = "",
+        base_url: Annotated[str, Form()] = OPENROUTER_BASE_URL,
+        local_api_key: Annotated[str, Form()] = "",
         jev_model: Annotated[str, Form()] = "typesafe/jev-1.13",
+        qc_base_url: Annotated[str, Form()] = OPENROUTER_BASE_URL,
         prompt: Annotated[str, Form()] = "",
     ):
         """Stream NDJSON progress events, ending with a result or error event."""
 
-        if not api_key.strip():
-            return JSONResponse(status_code=400, content={"error": "OpenRouter API key is required"})
+        jev_model = normalize_qc_model(jev_model)
+        try:
+            client = _make_client(base_url, api_key, local_api_key)
+            qc_client = _make_client(qc_base_url, api_key, local_api_key) if jev_model else None
+        except ValueError as exc:
+            return JSONResponse(status_code=400, content={"error": str(exc)})
 
         try:
             source_cues = parse_srt(file.file.read().decode("utf-8-sig"))
@@ -66,8 +87,14 @@ def create_app() -> FastAPI:
 
         def run() -> None:
             try:
-                log.info("[%s] %d cues, model=%s jev=%s", file.filename, len(source_cues), model, jev_model)
-                client = OpenRouterClient(api_key)
+                log.info(
+                    "[%s] %d cues, model=%s @ %s, qc=%s",
+                    file.filename,
+                    len(source_cues),
+                    model,
+                    client.label,
+                    jev_model or "off",
+                )
                 progress("translate")(0, len(source_cues))
                 translated = translate_cues(
                     client,
@@ -80,7 +107,7 @@ def create_app() -> FastAPI:
                 )
                 records, _ = deterministic_check(source_cues, translated.translations)
                 qc_status, qc_errors = run_jev_qc(
-                    client,
+                    qc_client,
                     records,
                     source_language=source_language,
                     target_language=target_language,
@@ -139,14 +166,19 @@ def create_app() -> FastAPI:
         translation_file: Annotated[UploadFile, File()],
         source_language: Annotated[str, Form()],
         target_language: Annotated[str, Form()],
-        api_key: Annotated[str, Form()],
+        api_key: Annotated[str, Form()] = "",
+        local_api_key: Annotated[str, Form()] = "",
         jev_model: Annotated[str, Form()] = "typesafe/jev-1.13",
+        qc_base_url: Annotated[str, Form()] = OPENROUTER_BASE_URL,
         prompt: Annotated[str, Form()] = "",
     ):
-        """Run deterministic checks and Jev over an existing SRT pair."""
+        """Run deterministic checks and model review over an existing SRT pair."""
 
-        if not api_key.strip():
-            return JSONResponse(status_code=400, content={"error": "OpenRouter API key is required"})
+        jev_model = normalize_qc_model(jev_model)
+        try:
+            qc_client = _make_client(qc_base_url, api_key, local_api_key) if jev_model else None
+        except ValueError as exc:
+            return JSONResponse(status_code=400, content={"error": str(exc)})
 
         try:
             source_cues = parse_srt(source_file.file.read().decode("utf-8-sig"))
@@ -176,7 +208,6 @@ def create_app() -> FastAPI:
                     len(target_cues),
                     jev_model,
                 )
-                client = OpenRouterClient(api_key)
                 records, _ = deterministic_check(
                     source_cues,
                     translations,
@@ -184,7 +215,7 @@ def create_app() -> FastAPI:
                 )
                 progress(0, len(source_cues))
                 qc_status, qc_errors = run_jev_qc(
-                    client,
+                    qc_client,
                     records,
                     source_language=source_language,
                     target_language=target_language,

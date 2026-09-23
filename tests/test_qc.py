@@ -121,3 +121,61 @@ def test_successful_run_with_flags_has_explicit_status():
     records, _ = deterministic_check(source, {"0": ""})
 
     assert finalize_qc_status(records, "completed") == "completed_with_flags"
+
+
+def test_non_jev_model_reviews_through_chat():
+    from jev_subtitle_translator.qc import REVIEW_SCHEMA
+
+    class FakeClient:
+        def __init__(self):
+            self.calls = []
+
+        def chat_json(self, **kwargs):
+            self.calls.append(kwargs)
+            return {
+                "items": [
+                    {"id": "0", "needs_review": True},
+                    {"id": "1", "needs_review": False},
+                    {"id": "9", "needs_review": True},
+                ]
+            }
+
+        def decisions(self, **kwargs):
+            raise AssertionError("chat models must not use the Decisions endpoint")
+
+    client = FakeClient()
+    source = read_srt(FIXTURES / "english.srt")[:2]
+    records, _ = deterministic_check(source, {"0": "a", "1": "b"})
+
+    status, errors = run_jev_qc(
+        client, records, source_language="en", target_language="de", model="qwen2.5:7b"
+    )
+
+    assert (status, errors) == ("completed", [])
+    assert client.calls[0]["schema"] is REVIEW_SCHEMA
+    assert "needs_review" in client.calls[0]["messages"][0]["content"]
+    assert records["0"]["issues"] == ["model_review"]
+    assert records["1"]["translation_status"] == STATUS_COMPLETED
+
+
+def test_empty_qc_model_skips_semantic_review_but_keeps_deterministic_flags():
+    source = read_srt(FIXTURES / "english.srt")[:2]
+    records, _ = deterministic_check(source, {"0": "a", "1": ""})
+
+    status, errors = run_jev_qc(None, records, source_language="en", target_language="de", model="")
+    report = build_report(
+        source,
+        {"0": "a", "1": ""},
+        records,
+        qc_status=finalize_qc_status(records, status),
+        qc_errors=errors,
+        translation_model="local",
+        jev_model="",
+    )
+
+    assert status == "skipped"
+    assert report["qc_status"] == "completed_with_flags"
+    assert report["qc_method"] == "off"
+    assert report["jev_model"] is None
+    assert finalize_qc_status(deterministic_check(source[:1], {"0": "a"})[0], "skipped") == "skipped"
+
