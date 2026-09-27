@@ -50,7 +50,9 @@ def _capture_request(client, content='{"items": []}', **kwargs):
         return {"choices": [{"message": {"content": content}}]}
 
     client._request_json = fake_request
-    result = client.chat_json(model="qwen2.5:7b", messages=[{"role": "user", "content": "x"}], **kwargs)
+    result = client.chat_json(
+        model="qwen2.5:7b", messages=[{"role": "user", "content": "x"}], **kwargs
+    )
     return sent, result
 
 
@@ -74,6 +76,30 @@ def test_openrouter_still_requires_a_key():
 
     with pytest.raises(ValueError, match="OPENROUTER_API_KEY"):
         OpenRouterClient("")
+
+
+def test_jev_decisions_use_adjacent_context_and_precision_first_criteria():
+    client = OpenRouterClient("key")
+    sent = {}
+
+    def fake_request(url, body):
+        sent["url"] = url
+        sent["body"] = body
+        return {"answers": {"7": {"type": "noul", "noul": 0}}}
+
+    client._request_json = fake_request
+    result = client.decisions(
+        model="~typesafe/jev-latest",
+        pairs=[{"id": "7", "source": "Take a", "translation": "Atme"}],
+        guidelines="precision-first",
+    )
+
+    question = sent["body"]["questions"]["7"]
+    assert sent["url"].endswith("/api/alpha/decisions")
+    assert "expand farther within the available batch" in question["instructions"]
+    assert "mid-token cutoff is always true" in question["criteria"]["true"]
+    assert "false for every cue" in question["criteria"]["false"]
+    assert result == {"7": False}
 
 
 def test_local_model_json_wrapped_in_markdown_is_accepted():

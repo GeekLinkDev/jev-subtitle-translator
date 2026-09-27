@@ -8,6 +8,7 @@ from pathlib import Path
 
 from .openrouter import OPENROUTER_BASE_URL, OpenRouterClient, is_openrouter_url
 from .qc import (
+    DEFAULT_JEV_MODEL,
     build_report,
     deterministic_check,
     finalize_qc_status,
@@ -56,7 +57,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--model",
         "--qc-model",
         dest="model",
-        default="typesafe/jev-1.13",
+        default=DEFAULT_JEV_MODEL,
         help="QC model: typesafe/jev-* uses Jev Decisions, any other ID reviews via chat",
     )
     _add_qc_base_url(qc)
@@ -73,8 +74,12 @@ def _add_language_arguments(
     *,
     include_short_aliases: bool,
 ) -> None:
-    source_flags = ["--source-language", "--source"] if include_short_aliases else ["--source-language"]
-    target_flags = ["--target-language", "--target"] if include_short_aliases else ["--target-language"]
+    source_flags = (
+        ["--source-language", "--source"] if include_short_aliases else ["--source-language"]
+    )
+    target_flags = (
+        ["--target-language", "--target"] if include_short_aliases else ["--target-language"]
+    )
     parser.add_argument(*source_flags, dest="source_language", required=True)
     parser.add_argument(*target_flags, dest="target_language", required=True)
 
@@ -92,7 +97,7 @@ def _add_common_arguments(parser: argparse.ArgumentParser) -> None:
         "--jev-model",
         "--qc-model",
         dest="jev_model",
-        default="typesafe/jev-1.13",
+        default=DEFAULT_JEV_MODEL,
         help="QC model: typesafe/jev-* uses Jev Decisions, any other ID reviews via chat, "
         "'none' skips semantic QC",
     )

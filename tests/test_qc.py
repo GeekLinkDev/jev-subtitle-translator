@@ -1,6 +1,9 @@
 from pathlib import Path
 
 from jev_subtitle_translator.qc import (
+    DEFAULT_JEV_MODEL,
+    JEV_PROMPT_VERSION,
+    QC_METHOD_DECISIONS,
     STATUS_COMPLETED,
     STATUS_NEEDS_REPAIR,
     STATUS_NEEDS_REVIEW,
@@ -8,6 +11,7 @@ from jev_subtitle_translator.qc import (
     deterministic_check,
     finalize_qc_status,
     pair_existing_translation,
+    qc_method,
     run_jev_qc,
 )
 from jev_subtitle_translator.srt import read_srt
@@ -49,7 +53,7 @@ def test_jev_flags_semantic_review_and_report_contains_line_data():
         qc_status=status,
         qc_errors=errors,
         translation_model="test/translator",
-        jev_model="typesafe/jev-1.13",
+        jev_model=DEFAULT_JEV_MODEL,
     )
 
     assert status == "completed"
@@ -57,6 +61,7 @@ def test_jev_flags_semantic_review_and_report_contains_line_data():
     assert records["0"]["translation_status"] == STATUS_NEEDS_REVIEW
     assert records["1"]["translation_status"] == STATUS_COMPLETED
     assert report["flagged_count"] == 1
+    assert report["prompt_version"] == JEV_PROMPT_VERSION
     assert report["lines"][0]["source"] == "I told him not to come."
 
 
@@ -100,7 +105,7 @@ def test_target_count_mismatch_is_reported():
         qc_status="completed_with_flags",
         qc_errors=[],
         translation_model="external",
-        jev_model="typesafe/jev-1.13",
+        jev_model=DEFAULT_JEV_MODEL,
     )
     assert report["structural_issues"] == ["source_target_count_mismatch"]
 
@@ -177,7 +182,10 @@ def test_empty_qc_model_skips_semantic_review_but_keeps_deterministic_flags():
     assert report["qc_status"] == "completed_with_flags"
     assert report["qc_method"] == "off"
     assert report["jev_model"] is None
-    assert finalize_qc_status(deterministic_check(source[:1], {"0": "a"})[0], "skipped") == "skipped"
+    assert report["prompt_version"] is None
+    assert (
+        finalize_qc_status(deterministic_check(source[:1], {"0": "a"})[0], "skipped") == "skipped"
+    )
 
 
 def test_review_guidelines_match_geeklink_rules():
@@ -186,7 +194,18 @@ def test_review_guidelines_match_geeklink_rules():
     text = build_jev_guidelines("en", "zh-CN", "Keep 'Grok' untranslated.")
 
     assert "Chinese translation of its English source" in text
-    assert "identical to the source when the source is a proper noun" in text
+    assert "precision-first" in text
+    assert "expand farther within the available batch" in text
+    assert "combined source meaning" in text
+    assert "return false for every cue in that span" in text
+    assert "A word split across subtitle cues is still a defect" in text
+    assert "'Transformati', 'Richa', or 'meinem T'" in text
+    assert "When uncertain, return false" in text
+    assert "prefer flagging it for review" not in text
     assert "Treat any choice these instructions explicitly asked for" in text
     assert "Keep 'Grok' untranslated." in text
     assert "fluency" not in text
+
+
+def test_latest_jev_alias_uses_decisions():
+    assert qc_method(DEFAULT_JEV_MODEL) == QC_METHOD_DECISIONS

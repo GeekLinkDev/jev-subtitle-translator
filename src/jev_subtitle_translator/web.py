@@ -18,6 +18,7 @@ from .openrouter import (
     is_openrouter_url,
 )
 from .qc import (
+    DEFAULT_JEV_MODEL,
     build_report,
     deterministic_check,
     finalize_qc_status,
@@ -58,7 +59,7 @@ def create_app() -> FastAPI:
         api_key: Annotated[str, Form()] = "",
         base_url: Annotated[str, Form()] = OPENROUTER_BASE_URL,
         local_api_key: Annotated[str, Form()] = "",
-        jev_model: Annotated[str, Form()] = "typesafe/jev-1.13",
+        jev_model: Annotated[str, Form()] = DEFAULT_JEV_MODEL,
         qc_base_url: Annotated[str, Form()] = OPENROUTER_BASE_URL,
         prompt: Annotated[str, Form()] = "",
     ):
@@ -145,7 +146,12 @@ def create_app() -> FastAPI:
                         "report": report,
                     }
                 )
-                log.info("[%s] done: qc_status=%s flagged=%d", file.filename, qc_status, report["flagged_count"])
+                log.info(
+                    "[%s] done: qc_status=%s flagged=%d",
+                    file.filename,
+                    qc_status,
+                    report["flagged_count"],
+                )
             except OpenRouterError as exc:
                 log.warning("[%s] failed: %s", file.filename, exc)
                 events.put({"type": "error", "error": str(exc)})
@@ -168,7 +174,7 @@ def create_app() -> FastAPI:
         target_language: Annotated[str, Form()],
         api_key: Annotated[str, Form()] = "",
         local_api_key: Annotated[str, Form()] = "",
-        jev_model: Annotated[str, Form()] = "typesafe/jev-1.13",
+        jev_model: Annotated[str, Form()] = DEFAULT_JEV_MODEL,
         qc_base_url: Annotated[str, Form()] = OPENROUTER_BASE_URL,
         prompt: Annotated[str, Form()] = "",
     ):
@@ -189,7 +195,9 @@ def create_app() -> FastAPI:
             translation_text = translation_file.file.read().decode("utf-8-sig")
             target_cues = parse_srt(translation_text)
         except (SRTError, UnicodeDecodeError) as exc:
-            return JSONResponse(status_code=400, content={"error": f"Invalid translated SRT: {exc}"})
+            return JSONResponse(
+                status_code=400, content={"error": f"Invalid translated SRT: {exc}"}
+            )
 
         translations = pair_existing_translation(source_cues, target_cues)
         events: queue.Queue[dict[str, Any] | None] = queue.Queue()

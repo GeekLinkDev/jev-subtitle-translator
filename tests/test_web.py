@@ -32,7 +32,7 @@ def test_qc_endpoint_reviews_an_existing_srt_pair(monkeypatch):
                 "source_language": "en",
                 "target_language": "de",
                 "api_key": "test-key",
-                "jev_model": "typesafe/jev-1.13",
+                "jev_model": "~typesafe/jev-latest",
             },
         )
 

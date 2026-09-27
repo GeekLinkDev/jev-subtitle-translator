@@ -24,6 +24,9 @@ QC_METHOD_DECISIONS = "jev_decisions"
 QC_METHOD_CHAT = "chat"
 QC_METHOD_OFF = "off"
 
+DEFAULT_JEV_MODEL = "~typesafe/jev-latest"
+JEV_PROMPT_VERSION = "jev-3"
+
 REVIEW_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
@@ -58,7 +61,7 @@ def qc_method(model: str | None) -> str:
     model = normalize_qc_model(model)
     if not model:
         return QC_METHOD_OFF
-    return QC_METHOD_DECISIONS if model.startswith("typesafe/jev") else QC_METHOD_CHAT
+    return QC_METHOD_DECISIONS if model.lstrip("~").startswith("typesafe/jev") else QC_METHOD_CHAT
 
 
 def pair_existing_translation(
@@ -118,11 +121,13 @@ def deterministic_check(
     return records, repair_ids
 
 
-def build_jev_guidelines(source_language: str, target_language: str, custom_prompt: str = "") -> str:
+def build_jev_guidelines(
+    source_language: str, target_language: str, custom_prompt: str = ""
+) -> str:
     """Build the review rules sent as Jev state.guidelines and as the chat reviewer's system prompt.
 
-    Verbatim copy of GeekLink's translation_qc.build_jev_guidelines so both tools
-    flag the same lines; keep the two in sync.
+    This is the public standalone copy of the canonical GeekLink Worker prompt.
+    Keep it aligned with buildJevGuidelines in server/cloudflare_worker.js.
     """
 
     source_language = language_name(source_language)
@@ -139,25 +144,47 @@ def build_jev_guidelines(source_language: str, target_language: str, custom_prom
             "--- End of instructions ---\n"
         )
     return (
-        "You are a bilingual subtitle quality-control checker. You do NOT translate or "
-        "rewrite. You judge whether each "
+        "You are a precision-first bilingual subtitle quality-control checker. "
+        "You do NOT translate or rewrite. Your job is to identify only clear translation "
+        "defects that are worth a human reviewer's time. You judge whether each "
         f"{target_language} translation of its {source_language} source needs human review.\n"
         f"{instructions_block}"
-        "Flag a line for review only for a genuine translation defect:\n"
-        "- Omission: source meaning is missing, or the line is left untranslated when it should be translated.\n"
-        "- Negation flipped: a negative/affirmative meaning is reversed.\n"
-        "- Numbers, dates, quantities, or units changed.\n"
-        "- Names of people, places, works, brands, or organizations changed or dropped "
-        "(unless the translator instructions asked to localize them).\n"
-        "- Opposite or clearly wrong meaning.\n"
-        "- Content added that has no basis in the source.\n"
-        "- Truncated, repeated, or obviously incomplete output.\n"
+        "The input items are ordered subtitle cues from the same video segment. A cue may "
+        "contain only part of a sentence, and the target language may distribute or reorder "
+        "meaning across adjacent cues.\n"
+        "Before judging an item:\n"
+        "1. Read the item itself.\n"
+        "2. Inspect surrounding preceding and following items as context. Start with the "
+        "nearest cues and expand farther within the available batch when the sentence, "
+        "speaker turn, or meaning clearly continues.\n"
+        "3. Compare the combined source meaning with the combined target meaning.\n"
+        "4. Decide whether a genuine defect remains after accounting for normal cross-cue "
+        "continuation and target-language word order.\n"
+        "If two or more adjacent cues form one sentence and their combined meaning is "
+        "preserved, return false for every cue in that span. Do not flag one cue merely "
+        "because its words align with a neighboring cue instead.\n"
+        "Flag the current item only when there is a clear, material translation defect:\n"
+        "- Source meaning is absent from the current and adjacent target cues, or the source "
+        "is left untranslated when it should be translated.\n"
+        "- Negation or affirmative meaning is reversed.\n"
+        "- A number, date, quantity, unit, or named entity is changed or dropped.\n"
+        "- The target expresses the opposite or clearly wrong meaning.\n"
+        "- Unsupported information is added.\n"
+        "- The output is duplicated, nonsensical, or visibly truncated.\n"
+        "- A word or name is visibly cut off mid-token, such as 'Transformati', 'Richa', "
+        "or 'meinem T'. This is always a defect even if adjacent cues make the sentence "
+        "understandable. A word split across subtitle cues is still a defect.\n"
         "Do NOT flag:\n"
-        "- Legitimate wording, word-order, or style differences that preserve meaning.\n"
-        "- A translation identical to the source when the source is a proper noun, number, "
-        "symbol, or is genuinely the same in both languages.\n"
+        "- A sentence fragment that is naturally completed in an adjacent target cue.\n"
+        "- Meaning that has moved to a neighboring cue because of target-language word order.\n"
+        "- Legitimate wording, grammar, tone, or style differences that preserve meaning.\n"
+        "- A proper noun, number, symbol, or expression that is correctly identical in both languages.\n"
+        "- Awkwardness already present in the source transcription, unless the translation changes its meaning.\n"
         "- Anything the translator instructions above explicitly requested.\n"
-        "When unsure whether a difference changes meaning, prefer flagging it for review."
+        "- Minor stylistic improvements that are optional rather than necessary.\n"
+        "This is a review-reduction tool. False positives waste the reviewer's time. "
+        "Return true only when you are confident that human review is necessary. "
+        "When uncertain, return false."
     )
 
 
@@ -181,7 +208,11 @@ def build_review_messages(
         "Keep every id unchanged, one output item per input item, no extra keys, "
         "no explanations, no markdown."
     )
-    payload = {"items": [{"id": p["id"], "source": p["source"], "translation": p["translation"]} for p in pairs]}
+    payload = {
+        "items": [
+            {"id": p["id"], "source": p["source"], "translation": p["translation"]} for p in pairs
+        ]
+    }
     user = (
         f"Check these {language_name(source_language)}->{language_name(target_language)} "
         "subtitle pairs. Return JSON only.\n"
@@ -213,7 +244,7 @@ def run_jev_qc(
     *,
     source_language: str,
     target_language: str,
-    model: str = "typesafe/jev-1.13",
+    model: str = DEFAULT_JEV_MODEL,
     custom_prompt: str = "",
     batch_size: int = 40,
     workers: int = 3,
@@ -339,10 +370,10 @@ def build_report(
 ) -> dict[str, Any]:
     """Build a portable JSON report without writing any telemetry."""
 
-    line_records = [
-        record for key, record in records.items() if not key.startswith("_")
+    line_records = [record for key, record in records.items() if not key.startswith("_")]
+    flagged = [
+        record for record in line_records if record.get("translation_status") != STATUS_COMPLETED
     ]
-    flagged = [record for record in line_records if record.get("translation_status") != STATUS_COMPLETED]
     return {
         "version": 1,
         "qc_status": qc_status,
@@ -353,6 +384,7 @@ def build_report(
         "translation_model": translation_model,
         "jev_model": normalize_qc_model(jev_model) or None,
         "qc_method": qc_method(jev_model),
+        "prompt_version": JEV_PROMPT_VERSION if normalize_qc_model(jev_model) else None,
         "translation_failures": translation_failures or {},
         "qc_errors": qc_errors,
         "lines": line_records,

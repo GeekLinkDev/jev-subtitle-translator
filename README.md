@@ -75,6 +75,15 @@ Jev is instructed to flag likely defects such as:
 - Changed or dropped names, numbers, dates, or units.
 - Truncated, repeated, or obviously incorrect content.
 
+QC runs on ordered batches of up to 40 cues. Before judging one cue, the reviewer
+can inspect as many preceding and following cues in that batch as the sentence or
+speaker turn requires. Meaning that legitimately moves across cue boundaries is
+not flagged; if a multi-cue sentence is complete, every cue in that span should
+pass. A word visibly cut off in the middle of a token remains a review-worthy
+defect even when the surrounding sentence is understandable. The rules are
+precision-first: uncertain or merely stylistic differences should pass so that
+the report stays focused on lines that genuinely deserve human attention.
+
 A Jev flag is a suggestion to inspect a subtitle, not proof that it is wrong. Jev does not rewrite translations and can miss mistakes. The [review rules](src/jev_subtitle_translator/qc.py) and [OpenRouter requests](src/jev_subtitle_translator/openrouter.py) are available in the source code.
 
 ## Supported input, models, and output
@@ -82,7 +91,7 @@ A Jev flag is a suggestion to inspect a subtitle, not proof that it is wrong. Je
 - **Subtitle format:** SRT input and translated SRT output.
 - **Translation models:** OpenRouter models that support strict JSON Schema output, including available GPT, Claude, Gemini, DeepSeek, and Grok models.
 - **Languages:** Any source and target language pair supported by the selected translation model.
-- **Quality-control model:** `typesafe/jev-1.13` by default, or any other OpenRouter or local model. QC can also be turned off to keep only the deterministic checks.
+- **Quality-control model:** OpenRouter's `~typesafe/jev-latest` alias by default, or any other OpenRouter or local model. QC can also be turned off to keep only the deterministic checks.
 - **Local models:** Any OpenAI-compatible server, such as Ollama, LM Studio, vLLM, or llama.cpp.
 - **Reports:** A translated SRT plus a JSON report containing line-level translation and review status.
 
@@ -128,7 +137,7 @@ export OPENROUTER_API_KEY="your-api-key"
   --qc-model qwen2.5:14b --qc-base-url http://localhost:11434/v1 --output translated.srt
 ```
 
-`OPENROUTER_API_KEY` is only needed for endpoints on openrouter.ai; set `LOCAL_API_KEY` if your local server requires a key. Jev models (`typesafe/jev-*`) use OpenRouter's Decisions endpoint and therefore require OpenRouter. Any other QC model receives the same review guidelines through chat and returns a `needs_review` verdict per line. Use `--qc-model none` to skip semantic QC.
+`OPENROUTER_API_KEY` is only needed for endpoints on openrouter.ai; set `LOCAL_API_KEY` if your local server requires a key. Jev models (`typesafe/jev-*` and `~typesafe/jev-*`) use OpenRouter's Decisions endpoint and therefore require OpenRouter. Any other QC model receives the same review guidelines through chat and returns a `needs_review` verdict per line. Use `--qc-model none` to skip semantic QC.
 
 The translator requests JSON Schema structured output. Most current local servers support it; if a model still wraps its JSON in text or markdown, the object is extracted automatically. Small local models may miss IDs more often, and those lines are retried and then flagged like any other failure.
 

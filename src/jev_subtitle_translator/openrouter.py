@@ -165,18 +165,29 @@ class OpenRouterClient:
             questions[subtitle_id] = {
                 "type": "noul",
                 "instructions": (
-                    f'Judge ONLY the item in state.subtitles whose id is "{subtitle_id}". '
-                    "Following state.guidelines, does that translation need human review?"
+                    f'Answer only for the item in state.subtitles whose id is "{subtitle_id}", '
+                    "but use surrounding preceding and following items as context. Start with "
+                    "the nearest cues and expand farther within the available batch when the "
+                    "sentence, speaker turn, or meaning clearly continues. Following "
+                    "state.guidelines, does this item contain a clear translation defect that "
+                    "still remains after considering cross-cue continuation and target-language "
+                    "word order?"
                 ),
                 "criteria": {
                     "true": (
-                        "The translation has a genuine defect: omission, flipped negation, "
-                        "changed numbers/dates/units, changed names, opposite meaning, "
-                        "unsupported additions, or truncation/repetition."
+                        "A clear material defect remains after checking adjacent cues: missing "
+                        "meaning, reversed negation, changed numbers/dates/quantities/units or "
+                        "named entities, wrong meaning, unsupported content, duplication, "
+                        "nonsense, or a word visibly cut off mid-token such as 'Transformati', "
+                        "'Richa', or 'meinem T'. A mid-token cutoff is always true even if "
+                        "adjacent context is understandable."
                     ),
                     "false": (
-                        "The translation preserves the source meaning; wording or style "
-                        "differences are acceptable."
+                        "The meaning is preserved in the local subtitle context, including when "
+                        "wording or sentence content continues or moves across adjacent cues; or "
+                        "the evidence is uncertain. If combined meaning is preserved across a "
+                        "multi-cue sentence, answer false for every cue in that span rather than "
+                        "assigning a defect to one cue."
                     ),
                 },
             }
