@@ -1,5 +1,7 @@
 # GeekLink AI Subtitle Translator with Jev QC
 
+**English** · [简体中文](README.zh-CN.md) · [日本語](README.ja.md) · [한국어](README.ko.md)
+
 An open-source SRT translator and subtitle QC tool for LLM-powered workflows. Use it to translate SRT files, preserve every subtitle cue, and automatically check translations with Jev.
 
 **Topics:** SRT translator · subtitle QC · subtitle LLM · OpenRouter · Jev
