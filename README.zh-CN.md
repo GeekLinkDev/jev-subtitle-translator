@@ -21,7 +21,7 @@
 
 > **需要从视频而不是 SRT 文件开始？**
 >
-> 这个开源项目专注于翻译和复查已有的 SRT 字幕。[**试用 GeekLink 字幕翻译器 →**](https://geeklink.dev/subtitle-translator/) 获得完整流程：视频/音频转录、字幕翻译、硬字幕提取、结果编辑和成品视频导出。
+> 这个开源项目专注于翻译和复查已有的 SRT 字幕。[**试用 GeekLink 字幕翻译器 →**](https://geeklink.dev/subtitle-translator/?utm_source=github&utm_medium=oss&utm_campaign=jev) 获得完整流程：视频/音频转录、字幕翻译、硬字幕提取、结果编辑和成品视频导出。
 >
 > *无需配置 Python，也无需管理模型 API。*
 
@@ -156,7 +156,7 @@ export OPENROUTER_API_KEY="your-api-key"
 
 ### 这个项目和 GeekLink 有什么区别？
 
-本项目专注于翻译和复查已有的 SRT 文件。[GeekLink](https://geeklink.dev/subtitle-translator/) 是面向创作者的完整桌面应用，涵盖转录、翻译、硬字幕提取、字幕编辑和视频导出。
+本项目专注于翻译和复查已有的 SRT 文件。[GeekLink](https://geeklink.dev/subtitle-translator/?utm_source=github&utm_medium=oss&utm_campaign=jev) 是面向创作者的完整桌面应用，涵盖转录、翻译、硬字幕提取、字幕编辑和视频导出。
 
 ## 开发与许可证
 
