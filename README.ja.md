@@ -21,7 +21,7 @@ GPT、Claude、Gemini、DeepSeek、Grok、またはその他の互換 OpenRouter
 
 > **SRT ファイルではなく動画から始めたいですか？**
 >
-> このオープンソースプロジェクトは、既存の SRT 字幕の翻訳とレビューに特化しています。[**GeekLink Subtitle Translator を試す →**](https://geeklink.dev/subtitle-translator/) なら、動画・音声の文字起こし、字幕翻訳、焼き付け字幕の抽出、結果の編集、完成動画の書き出しまで一通りこなせます。
+> このオープンソースプロジェクトは、既存の SRT 字幕の翻訳とレビューに特化しています。[**GeekLink Subtitle Translator を試す →**](https://geeklink.dev/subtitle-translator/?utm_source=github&utm_medium=oss&utm_campaign=jev) なら、動画・音声の文字起こし、字幕翻訳、焼き付け字幕の抽出、結果の編集、完成動画の書き出しまで一通りこなせます。
 >
 > *Python のセットアップもモデル API の管理も不要です。*
 
@@ -156,7 +156,7 @@ export OPENROUTER_API_KEY="your-api-key"
 
 ### このプロジェクトと GeekLink の違いは？
 
-本プロジェクトは既存の SRT ファイルの翻訳とレビューに特化しています。[GeekLink](https://geeklink.dev/subtitle-translator/) は、文字起こし、翻訳、焼き付け字幕の抽出、字幕編集、動画書き出しまでを備えた、クリエイター向けの本格的なデスクトップアプリです。
+本プロジェクトは既存の SRT ファイルの翻訳とレビューに特化しています。[GeekLink](https://geeklink.dev/subtitle-translator/?utm_source=github&utm_medium=oss&utm_campaign=jev) は、文字起こし、翻訳、焼き付け字幕の抽出、字幕編集、動画書き出しまでを備えた、クリエイター向けの本格的なデスクトップアプリです。
 
 ## 開発とライセンス
 

@@ -21,7 +21,7 @@ GPT, Claude, Gemini, DeepSeek, Grok 또는 기타 호환되는 OpenRouter 모델
 
 > **SRT 파일이 아니라 동영상에서 시작해야 하나요?**
 >
-> 이 오픈소스 프로젝트는 기존 SRT 자막의 번역과 검토에 초점을 맞추고 있습니다. [**GeekLink Subtitle Translator 사용해 보기 →**](https://geeklink.dev/subtitle-translator/)에서 동영상·오디오 전사, 자막 번역, 하드코딩 자막 추출, 결과 편집, 완성 동영상 내보내기까지 전체 워크플로를 이용할 수 있습니다.
+> 이 오픈소스 프로젝트는 기존 SRT 자막의 번역과 검토에 초점을 맞추고 있습니다. [**GeekLink Subtitle Translator 사용해 보기 →**](https://geeklink.dev/subtitle-translator/?utm_source=github&utm_medium=oss&utm_campaign=jev)에서 동영상·오디오 전사, 자막 번역, 하드코딩 자막 추출, 결과 편집, 완성 동영상 내보내기까지 전체 워크플로를 이용할 수 있습니다.
 >
 > *Python 설정이나 모델 API 관리가 필요 없습니다.*
 
@@ -156,7 +156,7 @@ export OPENROUTER_API_KEY="your-api-key"
 
 ### 이 프로젝트와 GeekLink의 차이점은 무엇인가요?
 
-이 프로젝트는 기존 SRT 파일의 번역과 검토에 집중합니다. [GeekLink](https://geeklink.dev/subtitle-translator/)는 전사, 번역, 하드코딩 자막 추출, 자막 편집, 동영상 내보내기를 모두 갖춘 크리에이터용 데스크톱 앱입니다.
+이 프로젝트는 기존 SRT 파일의 번역과 검토에 집중합니다. [GeekLink](https://geeklink.dev/subtitle-translator/?utm_source=github&utm_medium=oss&utm_campaign=jev)는 전사, 번역, 하드코딩 자막 추출, 자막 편집, 동영상 내보내기를 모두 갖춘 크리에이터용 데스크톱 앱입니다.
 
 ## 개발 및 라이선스
 

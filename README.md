@@ -1,5 +1,7 @@
 # GeekLink AI Subtitle Translator with Jev QC
 
+> The open-source translation engine behind [GeekLink](https://geeklink.dev/?utm_source=github&utm_medium=oss&utm_campaign=jev). The full GeekLink desktop app (macOS & Windows) adds OCR extraction of hardcoded subtitles, local Whisper transcription, and a bilingual subtitle editor.
+
 **English** · [简体中文](README.zh-CN.md) · [日本語](README.ja.md) · [한국어](README.ko.md)
 
 An open-source SRT translator and subtitle QC tool for LLM-powered workflows. Use it to translate SRT files, preserve every subtitle cue, and automatically check translations with Jev.
@@ -21,7 +23,7 @@ Translate SRT subtitles with GPT, Claude, Gemini, DeepSeek, Grok, or another com
 
 > **Need to start from a video instead of an SRT file?**
 >
-> This open-source project is designed for translating and reviewing existing SRT subtitles. [**Try GeekLink Subtitle Translator →**](https://geeklink.dev/subtitle-translator/) for the complete workflow: transcribe video or audio, translate subtitles, extract burned-in subtitles, edit the results, and export finished videos.
+> This open-source project is designed for translating and reviewing existing SRT subtitles. [**Try GeekLink Subtitle Translator →**](https://geeklink.dev/subtitle-translator/?utm_source=github&utm_medium=oss&utm_campaign=jev) for the complete workflow: transcribe video or audio, translate subtitles, extract burned-in subtitles, edit the results, and export finished videos.
 >
 > *No Python setup or model API management required.*
 
@@ -163,7 +165,7 @@ The project is free and open source under the GPL. You provide your own OpenRout
 
 ### What is the difference between this project and GeekLink?
 
-This project focuses on translating and reviewing existing SRT files. [GeekLink](https://geeklink.dev/subtitle-translator/) is the complete creator-facing desktop app for transcription, translation, burned-in subtitle extraction, subtitle editing, and video export.
+This project focuses on translating and reviewing existing SRT files. [GeekLink](https://geeklink.dev/subtitle-translator/?utm_source=github&utm_medium=oss&utm_campaign=jev) is the complete creator-facing desktop app for transcription, translation, burned-in subtitle extraction, subtitle editing, and video export.
 
 ## Development and license
 
